@@ -1,0 +1,9 @@
+[package]
+name = "navi"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = "4.5.60"
+rustyline = "17.0.2"
