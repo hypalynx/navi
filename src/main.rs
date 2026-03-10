@@ -17,6 +17,11 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    println!(
+        "navi ({}), type /help for more information and /quit or Ctrl + C to exit.",
+        env!("CARGO_PKG_VERSION")
+    );
+
     let mut rl = DefaultEditor::new()?;
 
     loop {
@@ -26,11 +31,9 @@ fn main() -> anyhow::Result<()> {
                 execute(&line)?;
             }
             Err(ReadlineError::Interrupted) => {
-                println!("Ctrl-C");
-                continue;
+                break;
             }
             Err(ReadlineError::Eof) => {
-                println!("Ctrl-D");
                 break;
             }
             Err(err) => {
