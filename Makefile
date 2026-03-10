@@ -1,7 +1,7 @@
 .PHONY: run
 
 run:
-	cargo run -- --debug
+	cargo run
 
 test: lint
 	cargo test

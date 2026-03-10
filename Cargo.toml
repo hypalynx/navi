@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.102"
-clap = "4.5.60"
+clap = { version = "4.5.60", features = ["derive"] }
 rustyline = "17.0.2"
