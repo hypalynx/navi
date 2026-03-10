@@ -15,8 +15,10 @@ struct Cli {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    let mut history: Vec<Message> = Vec::new();
+
     if let Some(cmd) = cli.exec {
-        execute(&cmd).await?;
+        execute(&cmd, &mut history).await?;
         return Ok(());
     }
 
@@ -31,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
         match rl.readline("> ") {
             Ok(line) => {
                 // TODO add history here
-                execute(&line).await?;
+                execute(&line, &mut history).await?;
             }
             Err(ReadlineError::Interrupted) => {
                 break;
@@ -55,13 +57,13 @@ struct ChatRequest {
     messages: Vec<Message>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct Message {
     role: String,
     content: String,
 }
 
-async fn llm_request(input: &str) -> anyhow::Result<String> {
+async fn llm_request(messages: &[Message]) -> anyhow::Result<String> {
     let client = reqwest::Client::new();
     // TODO get api_key if needed
     // TODO get hostname from config, default to localhost
@@ -71,10 +73,7 @@ async fn llm_request(input: &str) -> anyhow::Result<String> {
         //.header("Authorization", format!("Bearer {}", api_key))
         .json(&ChatRequest {
             model: "qwen3.5-9b".to_string(),
-            messages: vec![Message {
-                role: "user".to_string(),
-                content: input.to_string(),
-            }],
+            messages: messages.to_vec(),
         })
         .send()
         .await?
@@ -91,11 +90,23 @@ fn print_user(input: &str) {
     println!("{}", input.on_black().white());
 }
 
-async fn execute(input: &str) -> anyhow::Result<()> {
+async fn execute(input: &str, history: &mut Vec<Message>) -> anyhow::Result<()> {
     print_user(input);
 
-    match llm_request(input).await {
-        Ok(response) => println!("{}", response),
+    history.push(Message {
+        role: "user".to_string(),
+        content: input.to_string(),
+    });
+
+    match llm_request(history).await {
+        Ok(response) => {
+            println!("{}", response);
+
+            history.push(Message {
+                role: "assistant".to_string(),
+                content: response,
+            });
+        }
         Err(e) => eprintln!("Could not communicate with LLM: {}", e),
     };
 
