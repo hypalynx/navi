@@ -1,5 +1,6 @@
 use crate::Message;
 use crate::execute;
+use owo_colors::OwoColorize;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
@@ -15,6 +16,7 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>) -> anyhow::Result
         match rl.readline("> ") {
             Ok(line) => {
                 // TODO add history here
+                print_user(&line);
                 execute(&line, history).await?;
             }
             Err(ReadlineError::Interrupted) => {
@@ -29,4 +31,8 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>) -> anyhow::Result
             }
         }
     }
+}
+
+fn print_user(input: &str) {
+    println!("{}", input.on_black().white());
 }
