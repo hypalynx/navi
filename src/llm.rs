@@ -1,6 +1,7 @@
 use crate::Message;
 use std::io::Write;
 use tokio::sync::mpsc;
+use owo_colors::OwoColorize;
 
 pub enum StreamEvent {
     Content(String),
@@ -28,7 +29,7 @@ pub async fn execute(input: &str, history: &mut Vec<Message>) -> anyhow::Result<
                         content.push_str(&text);
                     }
                     StreamEvent::Thinking(text) => {
-                        print!("{}", text);
+                        print!("{}", text.bright_black().italic());
                         let _ = std::io::stdout().flush();
                         thinking.push_str(&text);
                     }
