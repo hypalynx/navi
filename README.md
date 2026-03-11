@@ -50,3 +50,8 @@ programs as humans are left out of the loop. We're all still
 learning how to take advantage of LLMs but I'm experimenting with
 a much 
 
+
+## Tasks / Features to implement
+
+- `$` execute your own shell command like `@`
+- `@` address a file

@@ -9,13 +9,23 @@ use serde::Serialize;
 struct Cli {
     #[arg(short, long)]
     exec: Option<String>,
+
+    #[arg(short, long)]
+    version: bool,
 }
+
+const NAVI_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     let mut history: Vec<Message> = Vec::new();
+
+    if cli.version {
+        println!("navi v{}", NAVI_VERSION);
+        return Ok(());
+    }
 
     if let Some(cmd) = cli.exec {
         execute(&cmd, &mut history).await?;
@@ -24,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
 
     println!(
         "navi ({}), type /help for more information and /quit or Ctrl + C to exit.",
-        env!("CARGO_PKG_VERSION")
+        NAVI_VERSION
     );
 
     let mut rl = DefaultEditor::new()?;

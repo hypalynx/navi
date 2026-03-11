@@ -1,7 +1,7 @@
 .PHONY: run
 
 run:
-	cargo run
+	cargo run -- $(ARGS)
 
 test: lint
 	cargo test
