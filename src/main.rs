@@ -39,7 +39,9 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[derive(Serialize, Clone)]
-struct Message {
-    role: String,
-    content: String,
+pub struct Message {
+    pub role: String,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
 }
