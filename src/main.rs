@@ -1,8 +1,8 @@
 use clap::Parser;
 use owo_colors::OwoColorize;
-use rustyline::DefaultEditor;
-use rustyline::error::ReadlineError;
 use serde::Serialize;
+
+mod repl;
 
 #[derive(Parser)]
 #[command(name = "navi")]
@@ -32,31 +32,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    println!(
-        "navi ({}), type /help for more information and /quit or Ctrl + C to exit.",
-        NAVI_VERSION
-    );
-
-    let mut rl = DefaultEditor::new()?;
-
-    loop {
-        match rl.readline("> ") {
-            Ok(line) => {
-                // TODO add history here
-                execute(&line, &mut history).await?;
-            }
-            Err(ReadlineError::Interrupted) => {
-                break;
-            }
-            Err(ReadlineError::Eof) => {
-                break;
-            }
-            Err(err) => {
-                eprintln!("Error: {:?}", err);
-                break;
-            }
-        }
-    }
+    repl::prompt(NAVI_VERSION, &mut history).await?;
 
     Ok(())
 }
@@ -82,7 +58,7 @@ async fn llm_request(messages: &[Message]) -> anyhow::Result<String> {
         .post("http://127.0.0.1:7777/v1/chat/completions")
         //.header("Authorization", format!("Bearer {}", api_key))
         .json(&ChatRequest {
-            model: "qwen3.5-9b".to_string(),
+            model: "qwen3.5-2b".to_string(),
             messages: messages.to_vec(),
         })
         .send()
