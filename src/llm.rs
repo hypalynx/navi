@@ -2,6 +2,7 @@ use crate::Message;
 use std::io::Write;
 use tokio::sync::mpsc;
 use owo_colors::OwoColorize;
+use futures::TryStreamExt;
 
 pub enum StreamEvent {
     Content(String),
@@ -74,9 +75,27 @@ async fn llm_request(messages: &[Message], port: u16) -> anyhow::Result<mpsc::Re
             .await
         {
             Ok(response) => {
-                if let Ok(text) = response.text().await {
-                    let _ = parse_events(text, tx).await;
+                let mut stream = response.bytes_stream();
+                let mut buffer = String::new();
+
+                while let Ok(Some(bytes)) = stream.try_next().await {
+                    buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+                    // Process complete lines, keep incomplete ones in buffer
+                    let lines: Vec<&str> = buffer.split('\n').collect();
+                    for line in &lines[..lines.len() - 1] {
+                        let _ = parse_line(line, &tx).await;
+                    }
+                    // Keep the last (possibly incomplete) line
+                    buffer = lines.last().unwrap_or(&"").to_string();
                 }
+
+                // Handle any remaining buffer
+                if !buffer.is_empty() {
+                    let _ = parse_line(&buffer, &tx).await;
+                }
+
+                let _ = tx.send(StreamEvent::Done).await;
             }
             Err(_) => {
                 let _ = tx.send(StreamEvent::Done).await;
@@ -87,31 +106,28 @@ async fn llm_request(messages: &[Message], port: u16) -> anyhow::Result<mpsc::Re
     Ok(rx)
 }
 
-async fn parse_events(text: String, tx: mpsc::Sender<StreamEvent>) -> anyhow::Result<()> {
-    for line in text.lines() {
-        if line == "data: [DONE]" {
-            break;
-        }
+async fn parse_line(line: &str, tx: &mpsc::Sender<StreamEvent>) -> anyhow::Result<()> {
+    if line == "data: [DONE]" {
+        return Ok(());
+    }
 
-        if let Some(data) = line.strip_prefix("data: ") {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                if let Some(delta) = json
-                    .get("choices")
-                    .and_then(|c| c.get(0))
-                    .and_then(|c| c.get("delta"))
+    if let Some(data) = line.strip_prefix("data: ") {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+            if let Some(delta) = json
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("delta"))
+            {
+                if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                    tx.send(StreamEvent::Content(content.to_string())).await?;
+                }
+                if let Some(thinking) = delta.get("reasoning_content").and_then(|t| t.as_str())
                 {
-                    if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                        tx.send(StreamEvent::Content(content.to_string())).await?;
-                    }
-                    if let Some(thinking) = delta.get("reasoning_content").and_then(|t| t.as_str())
-                    {
-                        tx.send(StreamEvent::Thinking(thinking.to_string())).await?;
-                    }
+                    tx.send(StreamEvent::Thinking(thinking.to_string())).await?;
                 }
             }
         }
     }
 
-    tx.send(StreamEvent::Done).await?;
     Ok(())
 }
