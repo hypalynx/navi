@@ -3,6 +3,7 @@ use clap::Parser;
 use serde::Serialize;
 
 mod llm;
+mod render;
 mod repl;
 
 #[derive(Parser)]

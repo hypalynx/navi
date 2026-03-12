@@ -1,4 +1,5 @@
 use crate::Message;
+use crate::render::Renderer;
 use std::io::Write;
 use tokio::sync::mpsc;
 use owo_colors::OwoColorize;
@@ -21,12 +22,12 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
         Ok(mut rx) => {
             let mut content = String::new();
             let mut thinking = String::new();
+            let mut renderer = Renderer::new(80);
 
             while let Some(event) = rx.recv().await {
                 match event {
                     StreamEvent::Content(text) => {
-                        print!("{}", text);
-                        let _ = std::io::stdout().flush();
+                        renderer.push(&text);
                         content.push_str(&text);
                     }
                     StreamEvent::Thinking(text) => {
@@ -34,7 +35,10 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
                         let _ = std::io::stdout().flush();
                         thinking.push_str(&text);
                     }
-                    StreamEvent::Done => break,
+                    StreamEvent::Done => {
+                        renderer.flush();
+                        break;
+                    }
                 }
             }
 
