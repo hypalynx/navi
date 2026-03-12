@@ -4,7 +4,7 @@ use owo_colors::OwoColorize;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
-pub async fn prompt(version: &str, history: &mut Vec<Message>) -> anyhow::Result<()> {
+pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> anyhow::Result<()> {
     println!(
         "navi ({}), type /help for more information and /quit or Ctrl + C to exit.",
         version
@@ -17,7 +17,7 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>) -> anyhow::Result
             Ok(line) => {
                 // TODO add history here
                 print_user(&line);
-                execute(&line, history).await?;
+                execute(&line, history, port).await?;
             }
             Err(ReadlineError::Interrupted) => {
                 break Ok(());

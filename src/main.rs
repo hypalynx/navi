@@ -13,6 +13,9 @@ struct Cli {
 
     #[arg(short, long)]
     version: bool,
+
+    #[arg(short, long, default_value = "7777")]
+    port: u16,
 }
 
 const NAVI_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -29,11 +32,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let Some(cmd) = cli.exec {
-        execute(&cmd, &mut history).await?;
+        execute(&cmd, &mut history, cli.port).await?;
         return Ok(());
     }
 
-    repl::prompt(NAVI_VERSION, &mut history).await?;
+    repl::prompt(NAVI_VERSION, &mut history, cli.port).await?;
 
     Ok(())
 }

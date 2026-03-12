@@ -9,14 +9,14 @@ pub enum StreamEvent {
     Done,
 }
 
-pub async fn execute(input: &str, history: &mut Vec<Message>) -> anyhow::Result<()> {
+pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyhow::Result<()> {
     history.push(Message {
         role: "user".to_string(),
         content: input.to_string(),
         thinking: None,
     });
 
-    match llm_request(history).await {
+    match llm_request(history, port).await {
         Ok(mut rx) => {
             let mut content = String::new();
             let mut thinking = String::new();
@@ -52,7 +52,7 @@ pub async fn execute(input: &str, history: &mut Vec<Message>) -> anyhow::Result<
 // TODO get api_key if needed
 // TODO get hostname from config, default to localhost
 // TODO need to pass client config in here so it's configurable/testable.
-async fn llm_request(messages: &[Message]) -> anyhow::Result<mpsc::Receiver<StreamEvent>> {
+async fn llm_request(messages: &[Message], port: u16) -> anyhow::Result<mpsc::Receiver<StreamEvent>> {
     let (tx, rx) = mpsc::channel(100);
     let messages = messages.to_vec();
 
@@ -65,8 +65,9 @@ async fn llm_request(messages: &[Message]) -> anyhow::Result<mpsc::Receiver<Stre
             "stream": true,
         });
 
+        let url = format!("http://127.0.0.1:{}/v1/chat/completions", port);
         match client
-            .post("http://127.0.0.1:7777/v1/chat/completions")
+            .post(&url)
             //.header("Authorization", format!("Bearer {}", api_key))
             .json(&body)
             .send()

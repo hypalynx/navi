@@ -4,7 +4,7 @@ run:
 	cargo run -- $(ARGS)
 
 debug:
-	http_proxy=http://127.0.0.1:8080 cargo run -- $(ARGS)
+	cargo run -- --port 8080 $(ARGS)
 
 
 test: lint
