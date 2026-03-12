@@ -14,6 +14,8 @@ pub struct Renderer {
     width: usize,
     ss: SyntaxSet,
     ts: ThemeSet,
+    needs_spacing: bool, // track if we should add spacing before next section
+    had_thinking: bool,  // track if we just printed thinking output
 }
 
 impl Renderer {
@@ -24,7 +26,13 @@ impl Renderer {
             width,
             ss: SyntaxSet::load_defaults_nonewlines(),
             ts: ThemeSet::load_defaults(),
+            needs_spacing: false,
+            had_thinking: false,
         }
+    }
+
+    pub fn set_had_thinking(&mut self, had_thinking: bool) {
+        self.had_thinking = had_thinking;
     }
 
     pub fn push(&mut self, token: &str) {
@@ -66,6 +74,8 @@ impl Renderer {
                 if line.trim_start().starts_with("```") {
                     // End of code block
                     self.highlight_code_block(lang, buf);
+                    println!(); // blank line after code block
+                    self.needs_spacing = true;
                     Mode::Normal
                 } else {
                     // Accumulate code
@@ -80,13 +90,17 @@ impl Renderer {
             }
             Mode::Normal => {
                 if line.trim_start().starts_with("```") {
-                    // Start of code block
+                    // Start of code block - add spacing before if needed
+                    if self.needs_spacing && !line.is_empty() {
+                        println!();
+                    }
                     let lang = line
                         .trim_start()
                         .strip_prefix("```")
                         .unwrap_or("")
                         .trim()
                         .to_string();
+                    self.needs_spacing = false;
                     Mode::CodeBlock {
                         lang,
                         buf: String::new(),
@@ -94,10 +108,14 @@ impl Renderer {
                 } else if line.starts_with("#") {
                     // Heading
                     self.render_heading(line);
+                    self.needs_spacing = true;
                     Mode::Normal
-                } else {
+                } else if !line.is_empty() {
                     // Normal text with inline markdown
                     self.render_text(line);
+                    self.needs_spacing = true;
+                    Mode::Normal
+                } else {
                     Mode::Normal
                 }
             }
@@ -108,6 +126,7 @@ impl Renderer {
     fn render_heading(&self, line: &str) {
         let trimmed = line.trim_start_matches('#').trim();
         println!("\x1b[1m{}\x1b[0m", trimmed);
+        println!(); // blank line after heading
     }
 
     fn render_text(&self, line: &str) {
