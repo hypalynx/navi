@@ -28,20 +28,16 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
             let mut thinking = String::new();
             let mut renderer = Renderer::new(80);
 
-            // Spinner state: keep running, toggle display
+            // Spinner state
             let spinner_active = Arc::new(AtomicBool::new(true));
-            let show_spinner = Arc::new(AtomicBool::new(true));
             let spinner_active_clone = spinner_active.clone();
-            let show_spinner_clone = show_spinner.clone();
 
-            // Start spinner task - runs continuously
+            // Start spinner task - only shows during initial wait
             let spinner_handle = tokio::spawn(async move {
                 let mut frame = 0;
                 while spinner_active_clone.load(Ordering::Relaxed) {
-                    if show_spinner_clone.load(Ordering::Relaxed) {
-                        print!("\r{} ", BRAILLE_SPINNER[frame % BRAILLE_SPINNER.len()]);
-                        let _ = std::io::stdout().flush();
-                    }
+                    print!("\r{} ", BRAILLE_SPINNER[frame % BRAILLE_SPINNER.len()]);
+                    let _ = std::io::stdout().flush();
                     tokio::time::sleep(tokio::time::Duration::from_millis(80)).await;
                     frame += 1;
                 }
@@ -51,24 +47,27 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
             });
 
             let mut had_thinking = false;
+            let mut first_event = true;
 
             while let Some(event) = rx.recv().await {
                 match event {
                     StreamEvent::Content(text) => {
-                        // Hide spinner and clear line
-                        show_spinner.store(false, Ordering::Relaxed);
-                        print!("\r\x1b[K");
-                        let _ = std::io::stdout().flush();
+                        // Stop spinner on first event
+                        if first_event {
+                            spinner_active.store(false, Ordering::Relaxed);
+                            first_event = false;
+                        }
 
                         renderer.set_had_thinking(had_thinking);
                         renderer.push(&text);
                         content.push_str(&text);
                     }
                     StreamEvent::Thinking(text) => {
-                        // Hide spinner for thinking
-                        show_spinner.store(false, Ordering::Relaxed);
-                        print!("\r\x1b[K");
-                        let _ = std::io::stdout().flush();
+                        // Stop spinner on first event
+                        if first_event {
+                            spinner_active.store(false, Ordering::Relaxed);
+                            first_event = false;
+                        }
 
                         print!("{}", text.bright_black().italic());
                         let _ = std::io::stdout().flush();

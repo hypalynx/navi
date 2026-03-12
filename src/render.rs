@@ -111,6 +111,11 @@ impl Renderer {
                     self.needs_spacing = true;
                     Mode::Normal
                 } else if !line.is_empty() {
+                    // Add spacing before first content if we had thinking
+                    if self.had_thinking {
+                        println!();
+                        self.had_thinking = false;
+                    }
                     // Normal text with inline markdown
                     self.render_text(line);
                     self.needs_spacing = true;
