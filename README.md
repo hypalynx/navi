@@ -55,3 +55,8 @@ a much
 
 - `$` execute your own shell command like `@`
 - `@` address a file
+
+## Technical Tasks
+- `needs_spacing` & `had_thinking` probably don't need to exist
+  in Renderer.
+- split render into markdown/layout/syntax submods

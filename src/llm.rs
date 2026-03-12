@@ -1,11 +1,11 @@
-use crate::Message;
 use crate::render::Renderer;
-use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use tokio::sync::mpsc;
-use owo_colors::OwoColorize;
 use futures::TryStreamExt;
+use owo_colors::OwoColorize;
+use serde::Serialize;
+use std::io::Write;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::mpsc;
 
 const BRAILLE_SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -13,6 +13,14 @@ pub enum StreamEvent {
     Content(String),
     Thinking(String),
     Done,
+}
+
+#[derive(Serialize, Clone)]
+pub struct Message {
+    pub role: String,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
 }
 
 pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyhow::Result<()> {
@@ -26,7 +34,7 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
         Ok(mut rx) => {
             let mut content = String::new();
             let mut thinking = String::new();
-            let mut renderer = Renderer::new(80);
+            let mut renderer = Renderer::new(80, std::io::stdout());
 
             // Spinner state
             let spinner_active = Arc::new(AtomicBool::new(true));
@@ -88,7 +96,11 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
             history.push(Message {
                 role: "assistant".to_string(),
                 content,
-                thinking: if thinking.is_empty() { None } else { Some(thinking) },
+                thinking: if thinking.is_empty() {
+                    None
+                } else {
+                    Some(thinking)
+                },
             });
         }
         Err(e) => eprintln!("Could not communicate with LLM: {}", e),
@@ -100,7 +112,10 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
 // TODO get api_key if needed
 // TODO get hostname from config, default to localhost
 // TODO need to pass client config in here so it's configurable/testable.
-async fn llm_request(messages: &[Message], port: u16) -> anyhow::Result<mpsc::Receiver<StreamEvent>> {
+async fn llm_request(
+    messages: &[Message],
+    port: u16,
+) -> anyhow::Result<mpsc::Receiver<StreamEvent>> {
     let (tx, rx) = mpsc::channel(100);
     let messages = messages.to_vec();
 
@@ -158,21 +173,18 @@ async fn parse_line(line: &str, tx: &mpsc::Sender<StreamEvent>) -> anyhow::Resul
         return Ok(());
     }
 
-    if let Some(data) = line.strip_prefix("data: ") {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-            if let Some(delta) = json
-                .get("choices")
-                .and_then(|c| c.get(0))
-                .and_then(|c| c.get("delta"))
-            {
-                if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                    tx.send(StreamEvent::Content(content.to_string())).await?;
-                }
-                if let Some(thinking) = delta.get("reasoning_content").and_then(|t| t.as_str())
-                {
-                    tx.send(StreamEvent::Thinking(thinking.to_string())).await?;
-                }
-            }
+    if let Some(data) = line.strip_prefix("data: ")
+        && let Ok(json) = serde_json::from_str::<serde_json::Value>(data)
+        && let Some(delta) = json
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("delta"))
+    {
+        if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+            tx.send(StreamEvent::Content(content.to_string())).await?;
+        }
+        if let Some(thinking) = delta.get("reasoning_content").and_then(|t| t.as_str()) {
+            tx.send(StreamEvent::Thinking(thinking.to_string())).await?;
         }
     }
 

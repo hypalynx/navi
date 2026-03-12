@@ -1,10 +1,5 @@
-use crate::llm::execute;
 use clap::Parser;
-use serde::Serialize;
-
-mod llm;
-mod render;
-mod repl;
+use navi::{Message, execute, repl};
 
 #[derive(Parser)]
 #[command(name = "navi")]
@@ -40,12 +35,4 @@ async fn main() -> anyhow::Result<()> {
     repl::prompt(NAVI_VERSION, &mut history, cli.port).await?;
 
     Ok(())
-}
-
-#[derive(Serialize, Clone)]
-pub struct Message {
-    pub role: String,
-    pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thinking: Option<String>,
 }

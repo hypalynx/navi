@@ -1,28 +1,32 @@
+use std::io::Write;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
-use std::io::Write;
 
 enum Mode {
     Normal,
-    CodeBlock { lang: String, buf: String },
+    CodeBlock { lang: String },
 }
 
-pub struct Renderer {
+pub struct Renderer<T: Write> {
+    writer: T,
     mode: Mode,
-    line_buf: String,
+    input_buffer: String, // Accumulates SSE chunks until we have complete lines
+    section_buffer: String, // Accumulates sections (code blocks) for batch rendering
     width: usize,
     ss: SyntaxSet,
     ts: ThemeSet,
-    needs_spacing: bool, // track if we should add spacing before next section
-    had_thinking: bool,  // track if we just printed thinking output
+    needs_spacing: bool,
+    had_thinking: bool,
 }
 
-impl Renderer {
-    pub fn new(width: usize) -> Self {
+impl<T: Write> Renderer<T> {
+    pub fn new(width: usize, writer: T) -> Self {
         Self {
+            writer,
             mode: Mode::Normal,
-            line_buf: String::new(),
+            input_buffer: String::new(),
+            section_buffer: String::new(),
             width,
             ss: SyntaxSet::load_defaults_nonewlines(),
             ts: ThemeSet::load_defaults(),
@@ -36,105 +40,99 @@ impl Renderer {
     }
 
     pub fn push(&mut self, token: &str) {
-        self.line_buf.push_str(token);
+        self.input_buffer.push_str(token);
 
-        // Process complete lines
-        loop {
-            match self.line_buf.find('\n') {
-                Some(newline_pos) => {
-                    let line_str = self.line_buf[..newline_pos].to_string();
-                    let rest = self.line_buf[newline_pos + 1..].to_string();
-                    self.line_buf = rest;
-                    self.process_line(&line_str);
-                }
-                None => break,
-            }
+        while let Some(newline_pos) = self.input_buffer.find('\n') {
+            let line_str = self.input_buffer[..newline_pos].to_string();
+            let rest = self.input_buffer[newline_pos + 1..].to_string();
+            self.input_buffer = rest;
+            self.process_line(&line_str);
         }
     }
 
     pub fn flush(&mut self) {
-        // Process remaining content in line buffer
-        if !self.line_buf.is_empty() {
-            let line = self.line_buf.clone();
-            self.process_line(&line);
-            self.line_buf.clear();
-        }
+        let mode_data = match &self.mode {
+            Mode::CodeBlock { lang } => Some(lang.clone()),
+            Mode::Normal => None,
+        };
 
-        // If in code block mode, highlight and print remaining buffer
-        if let Mode::CodeBlock { lang, buf } = &self.mode {
-            if !buf.is_empty() {
-                self.highlight_code_block(lang, buf);
+        if let Some(lang) = mode_data {
+            if !self.section_buffer.is_empty() {
+                let code = std::mem::take(&mut self.section_buffer);
+                self.highlight_code_block(&lang, &code);
+            }
+            let _ = writeln!(self.writer);
+            self.needs_spacing = true;
+        } else {
+            if !self.input_buffer.is_empty() {
+                let line = self.input_buffer.clone();
+                self.process_line(&line);
+                self.input_buffer.clear();
             }
         }
+        self.mode = Mode::Normal;
     }
 
     fn process_line(&mut self, line: &str) {
-        let next_mode = match &self.mode {
-            Mode::CodeBlock { lang, buf } => {
-                if line.trim_start().starts_with("```") {
-                    // End of code block
-                    self.highlight_code_block(lang, buf);
-                    println!(); // blank line after code block
-                    self.needs_spacing = true;
-                    Mode::Normal
-                } else {
-                    // Accumulate code
-                    let mut new_buf = buf.clone();
-                    new_buf.push_str(line);
-                    new_buf.push('\n');
-                    Mode::CodeBlock {
-                        lang: lang.clone(),
-                        buf: new_buf,
-                    }
+        let in_code_block = match &self.mode {
+            Mode::CodeBlock { lang } => Some(lang.clone()),
+            Mode::Normal => None,
+        };
+
+        let next_mode = if let Some(lang) = in_code_block {
+            if line.trim_start().starts_with("```") {
+                if !self.section_buffer.is_empty() {
+                    let code = std::mem::take(&mut self.section_buffer);
+                    self.highlight_code_block(&lang, &code);
                 }
+                let _ = writeln!(self.writer);
+                self.needs_spacing = true;
+                Mode::Normal
+            } else {
+                self.section_buffer.push_str(line);
+                self.section_buffer.push('\n');
+                Mode::CodeBlock { lang }
             }
-            Mode::Normal => {
-                if line.trim_start().starts_with("```") {
-                    // Start of code block - add spacing before if needed
-                    if self.needs_spacing && !line.is_empty() {
-                        println!();
-                    }
-                    let lang = line
-                        .trim_start()
-                        .strip_prefix("```")
-                        .unwrap_or("")
-                        .trim()
-                        .to_string();
-                    self.needs_spacing = false;
-                    Mode::CodeBlock {
-                        lang,
-                        buf: String::new(),
-                    }
-                } else if line.starts_with("#") {
-                    // Heading
-                    self.render_heading(line);
-                    self.needs_spacing = true;
-                    Mode::Normal
-                } else if !line.is_empty() {
-                    // Add spacing before first content if we had thinking
-                    if self.had_thinking {
-                        println!();
-                        self.had_thinking = false;
-                    }
-                    // Normal text with inline markdown
-                    self.render_text(line);
-                    self.needs_spacing = true;
-                    Mode::Normal
-                } else {
-                    Mode::Normal
+        } else {
+            if line.trim_start().starts_with("```") {
+                if self.needs_spacing && !line.is_empty() {
+                    let _ = writeln!(self.writer);
                 }
+                let lang = line
+                    .trim_start()
+                    .strip_prefix("```")
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                self.needs_spacing = false;
+                self.section_buffer.clear(); // Clear any leftover content
+                Mode::CodeBlock { lang }
+            } else if line.starts_with("#") {
+                self.render_heading(line);
+                self.needs_spacing = true;
+                Mode::Normal
+            } else if !line.is_empty() {
+                if self.had_thinking {
+                    let _ = writeln!(self.writer);
+                    self.had_thinking = false;
+                }
+                self.render_text(line);
+                self.needs_spacing = true;
+                Mode::Normal
+            } else {
+                Mode::Normal
             }
         };
         self.mode = next_mode;
     }
 
-    fn render_heading(&self, line: &str) {
+    fn render_heading(&mut self, line: &str) {
         let trimmed = line.trim_start_matches('#').trim();
-        println!("\x1b[1m{}\x1b[0m", trimmed);
-        println!(); // blank line after heading
+        let _ = writeln!(self.writer, "\x1b[1m{}\x1b[0m", trimmed);
+        let _ = writeln!(self.writer);
     }
 
-    fn render_text(&self, line: &str) {
+    fn render_text(&mut self, line: &str) {
         let text = self.parse_inline_markdown(line);
         self.word_wrap_and_print(&text);
     }
@@ -145,14 +143,13 @@ impl Renderer {
 
         while let Some(ch) = chars.next() {
             if ch == '*' {
-                // Check for bold (**) or italic (*)
                 if chars.peek() == Some(&'*') {
-                    chars.next(); // consume second *
-                    result.push_str("\x1b[1m"); // bold
+                    chars.next();
+                    result.push_str("\x1b[1m");
                     let mut inner = String::new();
                     while let Some(inner_ch) = chars.next() {
                         if inner_ch == '*' && chars.peek() == Some(&'*') {
-                            chars.next(); // consume second *
+                            chars.next();
                             break;
                         }
                         inner.push(inner_ch);
@@ -160,10 +157,9 @@ impl Renderer {
                     result.push_str(&inner);
                     result.push_str("\x1b[0m");
                 } else {
-                    // italic
                     result.push_str("\x1b[3m");
                     let mut inner = String::new();
-                    while let Some(inner_ch) = chars.next() {
+                    for inner_ch in chars.by_ref() {
                         if inner_ch == '*' {
                             break;
                         }
@@ -173,13 +169,12 @@ impl Renderer {
                     result.push_str("\x1b[0m");
                 }
             } else if ch == '_' && chars.peek() == Some(&'_') {
-                // bold with __
-                chars.next(); // consume second _
+                chars.next();
                 result.push_str("\x1b[1m");
                 let mut inner = String::new();
                 while let Some(inner_ch) = chars.next() {
                     if inner_ch == '_' && chars.peek() == Some(&'_') {
-                        chars.next(); // consume second _
+                        chars.next();
                         break;
                     }
                     inner.push(inner_ch);
@@ -187,10 +182,9 @@ impl Renderer {
                 result.push_str(&inner);
                 result.push_str("\x1b[0m");
             } else if ch == '`' {
-                // inline code
                 result.push_str("\x1b[1m");
                 let mut inner = String::new();
-                while let Some(inner_ch) = chars.next() {
+                for inner_ch in chars.by_ref() {
                     if inner_ch == '`' {
                         break;
                     }
@@ -206,7 +200,7 @@ impl Renderer {
         result
     }
 
-    fn word_wrap_and_print(&self, text: &str) {
+    fn word_wrap_and_print(&mut self, text: &str) {
         let mut current_line = String::new();
         let mut words = Vec::new();
         let mut current_word = String::new();
@@ -239,7 +233,7 @@ impl Renderer {
 
         for word in words {
             if word == "\n" {
-                println!("{}", current_line);
+                let _ = writeln!(self.writer, "{}", current_line);
                 current_line.clear();
             } else {
                 let word_display_len = self.display_len(&word);
@@ -251,19 +245,18 @@ impl Renderer {
                     current_line.push(' ');
                     current_line.push_str(&word);
                 } else {
-                    println!("{}", current_line);
+                    let _ = writeln!(self.writer, "{}", current_line);
                     current_line = word;
                 }
             }
         }
 
         if !current_line.is_empty() {
-            println!("{}", current_line);
+            let _ = writeln!(self.writer, "{}", current_line);
         }
     }
 
     fn display_len(&self, s: &str) -> usize {
-        // Count visible characters, excluding ANSI escape sequences
         let mut len = 0;
         let mut in_ansi = false;
 
@@ -282,30 +275,24 @@ impl Renderer {
         len
     }
 
-    fn highlight_code_block(&self, lang: &str, code: &str) {
-        // Try to syntax highlight, fall back to plain if lang not found
+    fn highlight_code_block(&mut self, lang: &str, code: &str) {
         let syntax = self.ss.find_syntax_by_token(lang);
 
         if let Some(syntax) = syntax {
             let mut highlighter = HighlightLines::new(syntax, &self.ts.themes["base16-ocean.dark"]);
             for line in code.lines() {
                 if let Ok(highlighted) = highlighter.highlight_line(line, &self.ss) {
-                    // Print ANSI colored output directly
                     for (style, text) in highlighted {
                         let fg = style.foreground;
-                        let ansi_code = format!(
-                            "\x1b[38;2;{};{};{}m",
-                            fg.r, fg.g, fg.b
-                        );
-                        print!("{}{}", ansi_code, text);
+                        let ansi_code = format!("\x1b[38;2;{};{};{}m", fg.r, fg.g, fg.b);
+                        let _ = write!(self.writer, "{}{}", ansi_code, text);
                     }
-                    println!("\x1b[0m");
+                    let _ = writeln!(self.writer, "\x1b[0m");
                 }
             }
         } else {
-            // Fallback: print plain text
-            print!("{}", code);
+            let _ = write!(self.writer, "{}", code);
         }
-        let _ = std::io::stdout().flush();
+        let _ = self.writer.flush();
     }
 }
