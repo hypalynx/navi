@@ -4,6 +4,7 @@ use std::path::Path;
 
 const MAX_OUTPUT_LINES: usize = 500;
 const MAX_OUTPUT_CONTEXT: usize = 50;
+const MAX_LINE_WIDTH: usize = 2000;
 
 #[derive(Debug, Clone)]
 pub struct ToolCall {
@@ -113,11 +114,27 @@ fn execute_read(args: &serde_json::Map<String, Value>) -> (String, String) {
 
             let result = if lines_from_offset_count > MAX_OUTPUT_LINES {
                 let head_lines = MAX_OUTPUT_LINES - MAX_OUTPUT_CONTEXT;
-                let head: Vec<&str> = lines_from_offset.iter().take(head_lines).cloned().collect();
-                let tail: Vec<&str> = lines_from_offset
+                let head: Vec<String> = lines_from_offset
+                    .iter()
+                    .take(head_lines)
+                    .map(|s| {
+                        if s.len() > MAX_LINE_WIDTH {
+                            format!("{}...", &s[..MAX_LINE_WIDTH])
+                        } else {
+                            s.to_string()
+                        }
+                    })
+                    .collect();
+                let tail: Vec<String> = lines_from_offset
                     .iter()
                     .skip(lines_from_offset_count - MAX_OUTPUT_CONTEXT)
-                    .cloned()
+                    .map(|s| {
+                        if s.len() > MAX_LINE_WIDTH {
+                            format!("{}...", &s[..MAX_LINE_WIDTH])
+                        } else {
+                            s.to_string()
+                        }
+                    })
                     .collect();
                 let skipped = lines_from_offset_count - head_lines - MAX_OUTPUT_CONTEXT;
                 let offset_note = if offset > 0 {
@@ -133,7 +150,17 @@ fn execute_read(args: &serde_json::Map<String, Value>) -> (String, String) {
                     tail.join("\n")
                 )
             } else {
-                let lines_str = lines_from_offset.join("\n");
+                let lines_str = lines_from_offset
+                    .iter()
+                    .map(|s| {
+                        if s.len() > MAX_LINE_WIDTH {
+                            format!("{}...", &s[..MAX_LINE_WIDTH])
+                        } else {
+                            s.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 if offset > 0 {
                     format!(
                         "{}\n\n[Read from line {} to {} of {} total]",
@@ -183,10 +210,16 @@ fn execute_glob(args: &serde_json::Map<String, Value>) -> (String, String) {
                 let summary = format!("Found {} files matching '{}'", total_matches, pattern);
 
                 let result = if total_matches > MAX_OUTPUT_LINES {
-                    let truncated: Vec<&str> = matches
+                    let truncated: Vec<String> = matches
                         .iter()
                         .take(MAX_OUTPUT_LINES)
-                        .map(|s| s.as_str())
+                        .map(|s| {
+                            if s.len() > MAX_LINE_WIDTH {
+                                format!("{}...", &s[..MAX_LINE_WIDTH])
+                            } else {
+                                s.clone()
+                            }
+                        })
                         .collect();
                     let skipped = total_matches - MAX_OUTPUT_LINES;
                     format!(
@@ -195,7 +228,17 @@ fn execute_glob(args: &serde_json::Map<String, Value>) -> (String, String) {
                         skipped
                     )
                 } else {
-                    matches.join("\n")
+                    matches
+                        .iter()
+                        .map(|s| {
+                            if s.len() > MAX_LINE_WIDTH {
+                                format!("{}...", &s[..MAX_LINE_WIDTH])
+                            } else {
+                                s.clone()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 };
 
                 (summary, result)
@@ -274,10 +317,16 @@ fn execute_grep(args: &serde_json::Map<String, Value>) -> (String, String) {
         let summary = format!("Found {} matches in {} files", total_matches, file_count);
 
         let result = if total_matches > MAX_OUTPUT_LINES {
-            let truncated: Vec<&str> = matches
+            let truncated: Vec<String> = matches
                 .iter()
                 .take(MAX_OUTPUT_LINES)
-                .map(|s| s.as_str())
+                .map(|s| {
+                    if s.len() > MAX_LINE_WIDTH {
+                        format!("{}...", &s[..MAX_LINE_WIDTH])
+                    } else {
+                        s.clone()
+                    }
+                })
                 .collect();
             let skipped = total_matches - MAX_OUTPUT_LINES;
             format!(
@@ -286,7 +335,17 @@ fn execute_grep(args: &serde_json::Map<String, Value>) -> (String, String) {
                 skipped
             )
         } else {
-            matches.join("\n")
+            matches
+                .iter()
+                .map(|s| {
+                    if s.len() > MAX_LINE_WIDTH {
+                        format!("{}...", &s[..MAX_LINE_WIDTH])
+                    } else {
+                        s.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
         };
 
         (summary, result)
