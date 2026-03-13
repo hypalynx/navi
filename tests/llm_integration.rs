@@ -1,5 +1,6 @@
 use navi::{StreamEvent, parse_line};
 use tokio::sync::mpsc;
+use std::collections::HashMap;
 
 #[tokio::test]
 async fn test_parse_hello_response_streaming() {
@@ -15,6 +16,9 @@ async fn test_parse_hello_response_streaming() {
             match event {
                 StreamEvent::Thinking(text) => thinking_content.push_str(&text),
                 StreamEvent::Content(text) => response_content.push_str(&text),
+                StreamEvent::ToolCalls(_) => {
+                    // Ignore tool calls in this test
+                }
                 StreamEvent::Done => break,
             }
         }
@@ -23,8 +27,9 @@ async fn test_parse_hello_response_streaming() {
     });
 
     // Parse all lines from the fixture
+    let mut tool_calls_acc = HashMap::new();
     for line in fixture.lines() {
-        let _ = parse_line(line, &tx).await;
+        let _ = parse_line(line, &tx, &mut tool_calls_acc).await;
     }
 
     // Send Done to signal completion
