@@ -78,6 +78,8 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
 
                 let mut first_event = true;
                 let mut interrupted = false;
+                print!("\x1b[?25l");
+                let _ = std::io::stdout().flush();
 
                 loop {
                     tokio::select! {
@@ -85,6 +87,8 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
                             interrupted = true;
                             llm_handle.abort();
                             spinner_active.store(false, Ordering::Relaxed);
+                            print!("\x1b[?25h");
+                            let _ = std::io::stdout().flush();
                             println!("\n");
                             break;
                         }
@@ -108,11 +112,15 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
                                     }
                                     StreamEvent::Error(err) => {
                                         spinner_active.store(false, Ordering::Relaxed);
+                                        print!("\x1b[?25h");
+                                        let _ = std::io::stdout().flush();
                                         eprintln!("\nLLM server error: {}", err);
                                         break;
                                     }
                                     StreamEvent::Done => {
                                         renderer.flush();
+                                        print!("\x1b[?25h");
+                                        let _ = std::io::stdout().flush();
                                         break;
                                     }
                                 }
