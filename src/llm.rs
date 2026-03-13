@@ -154,7 +154,7 @@ async fn llm_request(
     Ok(rx)
 }
 
-async fn parse_line(line: &str, tx: &mpsc::Sender<StreamEvent>) -> anyhow::Result<()> {
+pub async fn parse_line(line: &str, tx: &mpsc::Sender<StreamEvent>) -> anyhow::Result<()> {
     if line == "data: [DONE]" {
         return Ok(());
     }

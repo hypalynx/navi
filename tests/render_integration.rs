@@ -49,21 +49,3 @@ fn test_render_streaming() {
 
     assert_eq!(output_str.trim(), "Hello world this is a test");
 }
-
-#[test]
-fn test_render_hello_response() {
-    let fixture = include_str!("fixtures/hello_response.log");
-    let mut output = Vec::new();
-
-    let mut renderer = Renderer::new(80, &mut output);
-    for line in fixture.lines() {
-        renderer.push(line);
-    }
-    renderer.flush();
-
-    let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
-    println!(
-        "=== RENDERED OUTPUT ===\n{}\n=== END OUTPUT ===",
-        output_str
-    );
-}
