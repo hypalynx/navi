@@ -1,4 +1,4 @@
-use navi::Renderer;
+use navi::{ContentType, Renderer};
 
 #[test]
 fn test_render_simple_markdown() {
@@ -9,8 +9,8 @@ fn test_render_simple_markdown() {
 
     // Process the fixture
     for line in fixture.lines() {
-        renderer.push(line);
-        renderer.push("\n");
+        renderer.push(line, ContentType::Normal);
+        renderer.push("\n", ContentType::Normal);
     }
     renderer.flush();
 
@@ -25,18 +25,45 @@ fn test_render_simple_markdown() {
     assert!(!output_str.is_empty(), "output should not be empty");
 }
 
-// Placeholder for fixture-based test once you provide hello_response.log
-// #[test]
-// fn test_render_hello_response() {
-//     let fixture = include_str!("fixtures/hello_response.log");
-//     let mut output = Vec::new();
-//
-//     let mut renderer = Renderer::new(80, &mut output);
-//     for line in fixture.lines() {
-//         renderer.push(line);
-//     }
-//     renderer.flush();
-//
-//     let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
-//     println!("=== RENDERED OUTPUT ===\n{}\n=== END OUTPUT ===", output_str);
-// }
+#[test]
+fn test_render_streaming() {
+    // Test with token-sized chunks to see streaming behavior
+    let tokens = vec![
+        "Hello", " ", "world", " ", "this", " ", "is", " ", "a", " ", "test",
+    ];
+    let mut output = Vec::new();
+
+    let mut renderer = Renderer::new(80, &mut output);
+
+    // Push tokens one at a time
+    for token in tokens {
+        renderer.push(token, ContentType::Normal);
+    }
+    renderer.push("\n", ContentType::Normal);
+    renderer.flush();
+
+    let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
+    println!("=== STREAMING OUTPUT ===");
+    println!("{}", output_str);
+    println!("=== END OUTPUT ===");
+
+    assert_eq!(output_str.trim(), "Hello world this is a test");
+}
+
+#[test]
+fn test_render_hello_response() {
+    let fixture = include_str!("fixtures/hello_response.log");
+    let mut output = Vec::new();
+
+    let mut renderer = Renderer::new(80, &mut output);
+    for line in fixture.lines() {
+        renderer.push(line);
+    }
+    renderer.flush();
+
+    let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
+    println!(
+        "=== RENDERED OUTPUT ===\n{}\n=== END OUTPUT ===",
+        output_str
+    );
+}

@@ -53,35 +53,23 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
                 let _ = std::io::stdout().flush();
             });
 
-            let mut had_thinking = false;
             let mut first_event = true;
 
             while let Some(event) = rx.recv().await {
+                if first_event {
+                    spinner_active.store(false, Ordering::Relaxed);
+                }
+                first_event = false;
                 match event {
                     StreamEvent::Content(text) => {
-                        // Stop spinner on first event
-                        if first_event {
-                            spinner_active.store(false, Ordering::Relaxed);
-                            first_event = false;
-                        }
-
-                        renderer.set_had_thinking(had_thinking);
                         renderer.push(&text, ContentType::Normal);
                         content.push_str(&text);
                     }
                     StreamEvent::Thinking(text) => {
-                        // Stop spinner on first event
-                        if first_event {
-                            spinner_active.store(false, Ordering::Relaxed);
-                            first_event = false;
-                        }
-
                         renderer.push(&text, ContentType::Thinking);
                         thinking.push_str(&text);
-                        had_thinking = true;
                     }
                     StreamEvent::Done => {
-                        spinner_active.store(false, Ordering::Relaxed);
                         renderer.flush();
                         break;
                     }
