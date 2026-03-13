@@ -1,6 +1,5 @@
-use crate::render::Renderer;
+use crate::render::{ContentType, Renderer};
 use futures::TryStreamExt;
-use owo_colors::OwoColorize;
 use serde::Serialize;
 use std::io::Write;
 use std::sync::Arc;
@@ -67,7 +66,7 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
                         }
 
                         renderer.set_had_thinking(had_thinking);
-                        renderer.push(&text);
+                        renderer.push(&text, ContentType::Normal);
                         content.push_str(&text);
                     }
                     StreamEvent::Thinking(text) => {
@@ -77,8 +76,7 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
                             first_event = false;
                         }
 
-                        print!("{}", text.bright_black().italic());
-                        let _ = std::io::stdout().flush();
+                        renderer.push(&text, ContentType::Thinking);
                         thinking.push_str(&text);
                         had_thinking = true;
                     }
