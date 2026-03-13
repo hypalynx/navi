@@ -1,7 +1,4 @@
 use std::io::Write;
-use syntect::easy::HighlightLines;
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
 
 enum Mode {
     Normal,
@@ -11,11 +8,8 @@ enum Mode {
 pub struct Renderer<T: Write> {
     writer: T,
     mode: Mode,
-    input_buffer: String, // Accumulates SSE chunks until we have complete lines
-    section_buffer: String, // Accumulates sections (code blocks) for batch rendering
+    buffer: String, // Accumulates SSE chunks until we have complete lines
     width: usize,
-    ss: SyntaxSet,
-    ts: ThemeSet,
     needs_spacing: bool,
     had_thinking: bool,
 }
@@ -25,11 +19,8 @@ impl<T: Write> Renderer<T> {
         Self {
             writer,
             mode: Mode::Normal,
-            input_buffer: String::new(),
-            section_buffer: String::new(),
+            buffer: String::new(),
             width,
-            ss: SyntaxSet::load_defaults_nonewlines(),
-            ts: ThemeSet::load_defaults(),
             needs_spacing: false,
             had_thinking: false,
         }
@@ -40,37 +31,22 @@ impl<T: Write> Renderer<T> {
     }
 
     pub fn push(&mut self, token: &str) {
-        self.input_buffer.push_str(token);
+        self.buffer.push_str(token);
 
-        while let Some(newline_pos) = self.input_buffer.find('\n') {
-            let line_str = self.input_buffer[..newline_pos].to_string();
-            let rest = self.input_buffer[newline_pos + 1..].to_string();
-            self.input_buffer = rest;
+        while let Some(newline_pos) = self.buffer.find('\n') {
+            let line_str = self.buffer[..newline_pos].to_string();
+            let rest = self.buffer[newline_pos + 1..].to_string();
+            self.buffer = rest;
             self.process_line(&line_str);
         }
     }
 
     pub fn flush(&mut self) {
-        let mode_data = match &self.mode {
-            Mode::CodeBlock { lang } => Some(lang.clone()),
-            Mode::Normal => None,
-        };
-
-        if let Some(lang) = mode_data {
-            if !self.section_buffer.is_empty() {
-                let code = std::mem::take(&mut self.section_buffer);
-                self.highlight_code_block(&lang, &code);
-            }
-            let _ = writeln!(self.writer);
-            self.needs_spacing = true;
-        } else {
-            if !self.input_buffer.is_empty() {
-                let line = self.input_buffer.clone();
-                self.process_line(&line);
-                self.input_buffer.clear();
-            }
+        if !self.buffer.is_empty() {
+            let line = self.buffer.clone();
+            self.process_line(&line);
+            self.buffer.clear();
         }
-        self.mode = Mode::Normal;
     }
 
     fn process_line(&mut self, line: &str) {
@@ -81,16 +57,11 @@ impl<T: Write> Renderer<T> {
 
         let next_mode = if let Some(lang) = in_code_block {
             if line.trim_start().starts_with("```") {
-                if !self.section_buffer.is_empty() {
-                    let code = std::mem::take(&mut self.section_buffer);
-                    self.highlight_code_block(&lang, &code);
-                }
+                // end of code block, add new line and go back to normal
                 let _ = writeln!(self.writer);
-                self.needs_spacing = true;
                 Mode::Normal
             } else {
-                self.section_buffer.push_str(line);
-                self.section_buffer.push('\n');
+                let _ = writeln!(self.writer, "\x1b[2m{}\x1b[0m", line);
                 Mode::CodeBlock { lang }
             }
         } else {
@@ -105,7 +76,6 @@ impl<T: Write> Renderer<T> {
                     .trim()
                     .to_string();
                 self.needs_spacing = false;
-                self.section_buffer.clear(); // Clear any leftover content
                 Mode::CodeBlock { lang }
             } else if line.starts_with("#") {
                 self.render_heading(line);
@@ -273,26 +243,5 @@ impl<T: Write> Renderer<T> {
         }
 
         len
-    }
-
-    fn highlight_code_block(&mut self, lang: &str, code: &str) {
-        let syntax = self.ss.find_syntax_by_token(lang);
-
-        if let Some(syntax) = syntax {
-            let mut highlighter = HighlightLines::new(syntax, &self.ts.themes["base16-ocean.dark"]);
-            for line in code.lines() {
-                if let Ok(highlighted) = highlighter.highlight_line(line, &self.ss) {
-                    for (style, text) in highlighted {
-                        let fg = style.foreground;
-                        let ansi_code = format!("\x1b[38;2;{};{};{}m", fg.r, fg.g, fg.b);
-                        let _ = write!(self.writer, "{}{}", ansi_code, text);
-                    }
-                    let _ = writeln!(self.writer, "\x1b[0m");
-                }
-            }
-        } else {
-            let _ = write!(self.writer, "{}", code);
-        }
-        let _ = self.writer.flush();
     }
 }
