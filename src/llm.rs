@@ -15,6 +15,7 @@ pub enum StreamEvent {
     Content(String),
     Thinking(String),
     ToolCalls(Vec<crate::tools::ToolCall>),
+    Error(String),
     Done,
 }
 
@@ -104,6 +105,11 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
                                     }
                                     StreamEvent::ToolCalls(calls) => {
                                         tool_calls = calls;
+                                    }
+                                    StreamEvent::Error(err) => {
+                                        spinner_active.store(false, Ordering::Relaxed);
+                                        eprintln!("\nLLM server error: {}", err);
+                                        break;
                                     }
                                     StreamEvent::Done => {
                                         renderer.flush();
@@ -275,7 +281,8 @@ async fn llm_request(
 
                 let _ = tx.send(StreamEvent::Done).await;
             }
-            Err(_) => {
+            Err(e) => {
+                let _ = tx.send(StreamEvent::Error(e.to_string())).await;
                 let _ = tx.send(StreamEvent::Done).await;
             }
         }
