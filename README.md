@@ -57,8 +57,6 @@ a much
 - `@` address a file
 
 ## Technical Tasks
-- `needs_spacing` & `had_thinking` probably don't need to exist
-  in Renderer.
 - split render into markdown/layout/syntax submods
 - use in neovim? i.g visual highlight and then prompt for extra
   context? mini/shadow term like conjure?

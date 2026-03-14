@@ -5,6 +5,7 @@ use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::{Cmd, Completer, Editor, EventHandler, Helper, Hinter, Validator};
 use std::borrow::Cow;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -36,6 +37,13 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> any
     let mut rl = Editor::new()?;
     rl.set_helper(Some(helper));
 
+    let history_file = if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home).join(".navi_history")
+    } else {
+        PathBuf::from(".navi_history")
+    };
+    let _ = rl.load_history(&history_file);
+
     struct ToggleHandler(Arc<AtomicBool>);
     impl rustyline::ConditionalEventHandler for ToggleHandler {
         fn handle(
@@ -59,7 +67,7 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> any
         Cmd::Newline,
     );
 
-    loop {
+    let result = loop {
         match rl.readline("> ") {
             Ok(line) => {
                 let line = line.trim();
@@ -84,7 +92,10 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> any
                 break Ok(());
             }
         }
-    }
+    };
+
+    let _ = rl.save_history(&history_file);
+    result
 }
 
 fn print_user(input: &str) {
