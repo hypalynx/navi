@@ -48,13 +48,12 @@ pub async fn execute(
         tool_call_id: None,
     });
 
-    const MAX_ITERATIONS: usize = 10;
-    let mut iteration = 0;
+    let mut last_tool_calls: Option<Vec<(String, serde_json::Map<String, serde_json::Value>)>> = None;
+    let mut duplicate_count = 0;
+    let mut should_stop = false;
 
     loop {
-        iteration += 1;
-        if iteration > MAX_ITERATIONS {
-            eprintln!("Max tool iterations reached");
+        if should_stop {
             break;
         }
 
@@ -213,6 +212,25 @@ pub async fn execute(
                             tool_call_id: Some(tc.id.clone()),
                         });
                     }
+
+                    // Check for duplicate tool calls
+                    let current_calls: Vec<_> = tool_calls
+                        .iter()
+                        .map(|tc| (tc.name.clone(), tc.args.clone()))
+                        .collect();
+
+                    if let Some(ref last_calls) = last_tool_calls {
+                        if current_calls == *last_calls {
+                            duplicate_count += 1;
+                            if duplicate_count >= 3 {
+                                eprintln!("Same tool calls repeated 3 times, stopping");
+                                should_stop = true;
+                            }
+                        } else {
+                            duplicate_count = 0;
+                        }
+                    }
+                    last_tool_calls = Some(current_calls);
                     // Loop continues to next llm_request
                 }
             }
