@@ -19,6 +19,12 @@ async fn test_parse_hello_response_streaming() {
                 StreamEvent::ToolCalls(_) => {
                     // Ignore tool calls in this test
                 }
+                StreamEvent::Usage { .. } => {
+                    // Ignore usage data in this test
+                }
+                StreamEvent::ContextExceeded => {
+                    // Ignore context exceeded in this test
+                }
                 StreamEvent::Error(_) => {
                     // Ignore errors in this test
                 }

@@ -1,5 +1,7 @@
 use clap::Parser;
 use navi::{create_initial_history, execute, repl};
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
 #[derive(Parser)]
 #[command(name = "navi")]
@@ -28,7 +30,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let Some(cmd) = cli.exec {
-        execute(&cmd, &mut history, cli.port, false).await?;
+        let context_usage = Arc::new(AtomicUsize::new(0));
+        execute(&cmd, &mut history, cli.port, false, context_usage).await?;
         return Ok(());
     }
 

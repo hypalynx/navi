@@ -8,15 +8,21 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::mpsc;
 
 const BRAILLE_SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const CONTEXT_WINDOW_LIMIT: usize = 64_000;
 
 pub enum StreamEvent {
     Content(String),
     Thinking(String),
     ToolCalls(Vec<crate::tools::ToolCall>),
+    Usage {
+        input_tokens: usize,
+        output_tokens: usize,
+    },
+    ContextExceeded,
     Error(String),
     Done,
 }
@@ -39,7 +45,8 @@ pub async fn execute(
     history: &mut Vec<Message>,
     port: u16,
     thinking_enabled: bool,
-) -> anyhow::Result<()> {
+    context_usage: Arc<AtomicUsize>,
+) -> anyhow::Result<bool> {
     history.push(Message {
         role: "user".to_string(),
         content: Some(input.to_string()),
@@ -48,7 +55,19 @@ pub async fn execute(
         tool_call_id: None,
     });
 
-    let mut last_tool_calls: Option<Vec<(String, serde_json::Map<String, serde_json::Value>)>> = None;
+    // Check context limit before making request
+    let current_usage = context_usage.load(Ordering::Relaxed);
+    if current_usage >= CONTEXT_WINDOW_LIMIT {
+        eprintln!(
+            "\n[Context limit exceeded: {} / {} tokens]",
+            current_usage, CONTEXT_WINDOW_LIMIT
+        );
+        eprintln!("Session stopped. Please start a new session.");
+        return Ok(false);
+    }
+
+    let mut last_tool_calls: Option<Vec<(String, serde_json::Map<String, serde_json::Value>)>> =
+        None;
     let mut duplicate_count = 0;
     let mut should_stop = false;
 
@@ -123,6 +142,18 @@ pub async fn execute(
                                     StreamEvent::ToolCalls(calls) => {
                                         tool_calls = calls;
                                     }
+                                    StreamEvent::Usage { input_tokens, output_tokens } => {
+                                        let new_usage = context_usage.load(Ordering::Relaxed) + input_tokens + output_tokens;
+                                        context_usage.store(new_usage, Ordering::Relaxed);
+                                    }
+                                    StreamEvent::ContextExceeded => {
+                                        spinner_active.store(false, Ordering::Relaxed);
+                                        print!("\x1b[?25h");
+                                        let _ = std::io::stdout().flush();
+                                        eprintln!("\n[Context limit exceeded during generation]");
+                                        should_stop = true;
+                                        break;
+                                    }
                                     StreamEvent::Error(err) => {
                                         spinner_active.store(false, Ordering::Relaxed);
                                         print!("\x1b[?25h");
@@ -148,7 +179,7 @@ pub async fn execute(
                 let _ = spinner_handle.await;
 
                 if interrupted {
-                    break;
+                    return Ok(true);
                 }
 
                 if tool_calls.is_empty() {
@@ -164,7 +195,7 @@ pub async fn execute(
                         tool_calls: None,
                         tool_call_id: None,
                     });
-                    break;
+                    return Ok(true);
                 } else {
                     // Tool calls exist, push assistant message with tool_calls
                     let tool_calls_json: Vec<serde_json::Value> = tool_calls
@@ -236,12 +267,12 @@ pub async fn execute(
             }
             Err(e) => {
                 eprintln!("Could not communicate with LLM: {}", e);
-                break;
+                return Ok(true);
             }
         }
     }
 
-    Ok(())
+    Ok(!should_stop)
 }
 
 // TODO get api_key if needed
@@ -311,6 +342,9 @@ async fn llm_request(
             "model": "qwen3.5-2b",
             "messages": formatted_messages,
             "stream": true,
+            "stream_options": {
+                "include_usage": true
+            },
             "tools": crate::tools::get_tool_definitions(),
             "chat_template_kwargs": {
                 "enable_thinking": thinking_enabled
@@ -482,11 +516,35 @@ pub async fn parse_line(
 
     if let Some(data) = line.strip_prefix("data: ")
         && let Ok(json) = serde_json::from_str::<serde_json::Value>(data)
-        && let Some(delta) = json
+    {
+        // Check for usage information (comes at the end of the stream)
+        if let Some(usage) = json.get("usage") {
+            let input_tokens = usage
+                .get("prompt_tokens")
+                .and_then(|t| t.as_u64())
+                .unwrap_or(0) as usize;
+            let output_tokens = usage
+                .get("completion_tokens")
+                .and_then(|t| t.as_u64())
+                .unwrap_or(0) as usize;
+
+            if input_tokens > 0 || output_tokens > 0 {
+                tx.send(StreamEvent::Usage {
+                    input_tokens,
+                    output_tokens,
+                })
+                .await?;
+            }
+            return Ok(());
+        }
+
+        let Some(delta) = json
             .get("choices")
             .and_then(|c| c.get(0))
             .and_then(|c| c.get("delta"))
-    {
+        else {
+            return Ok(());
+        };
         if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
             tx.send(StreamEvent::Content(content.to_string())).await?;
         }

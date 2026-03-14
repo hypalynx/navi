@@ -7,7 +7,7 @@ use rustyline::{Cmd, Completer, Editor, EventHandler, Helper, Hinter, Validator}
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[derive(Helper, Completer, Hinter, Validator)]
 struct ReplHelper(Arc<AtomicBool>);
@@ -33,6 +33,7 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> any
     );
 
     let thinking_enabled = Arc::new(AtomicBool::new(false));
+    let context_usage = Arc::new(AtomicUsize::new(0));
     let helper = ReplHelper(thinking_enabled.clone());
     let mut rl = Editor::new()?;
     rl.set_helper(Some(helper));
@@ -77,13 +78,23 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> any
 
                 rl.add_history_entry(line)?;
                 print_user(line);
-                execute(
+                let should_continue = execute(
                     line,
                     history,
                     port,
                     thinking_enabled.load(Ordering::Relaxed),
+                    context_usage.clone(),
                 )
                 .await?;
+
+                // Show context usage
+                let usage = context_usage.load(Ordering::Relaxed);
+                let percentage = (usage as f64 / 64_000.0 * 100.0) as usize;
+                println!("\n[Context: {} tokens ({}%)]", usage, percentage);
+
+                if !should_continue {
+                    break Ok(());
+                }
             }
             Err(ReadlineError::Interrupted) => break Ok(()),
             Err(ReadlineError::Eof) => break Ok(()),
