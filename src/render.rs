@@ -205,15 +205,10 @@ impl<T: Write> Renderer<T> {
         // Handle newlines
         for (i, part) in token.split('\n').enumerate() {
             if i > 0 {
-                // Flush marker_buf as literal text at EOL
+                // Flush marker_buf through render_inline so formatting is processed
                 if !self.marker_buf.is_empty() {
-                    let segments = vec![Segment {
-                        text: self.marker_buf.clone(),
-                        bold: false,
-                        italic: false,
-                        code_span: false,
-                        strikethrough: false,
-                    }];
+                    let marker_content = self.marker_buf.clone();
+                    let segments = self.render_inline(&marker_content);
                     for segment in segments {
                         self.print_segment(&segment, content_type);
                     }
