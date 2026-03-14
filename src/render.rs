@@ -324,6 +324,23 @@ impl<T: Write> Renderer<T> {
                         let _ = writeln!(self.writer);
                         self.current_line_length = 0;
                         self.at_line_start = false;
+
+                        // If there's non-space content after the space, process it on the new line
+                        let remainder = processed_part.trim_start();
+                        if !remainder.is_empty() {
+                            let remainder_segments = self.render_inline(remainder);
+                            let remainder_len: usize = remainder_segments.iter().map(|s| self.display_len(&s.text)).sum();
+                            for segment in remainder_segments {
+                                self.print_segment(&segment, content_type);
+                            }
+                            self.current_line_length = remainder_len;
+                        }
+                    } else if self.is_trailing_punctuation(&processed_part) {
+                        // Token is trailing punctuation: append it anyway
+                        for segment in segments {
+                            self.print_segment(&segment, content_type);
+                        }
+                        self.current_line_length += total_len;
                     } else {
                         // Token doesn't fit: wrap line first
                         let _ = writeln!(self.writer);
@@ -421,5 +438,16 @@ impl<T: Write> Renderer<T> {
         }
 
         len
+    }
+
+    fn is_trailing_punctuation(&self, s: &str) -> bool {
+        // Check if string is only trailing punctuation (optionally with leading space)
+        let trimmed = s.trim_start();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        // Punctuation that commonly trails words
+        trimmed.chars().all(|c| matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '}' | '"' | '\'' | '>' | '-'))
     }
 }

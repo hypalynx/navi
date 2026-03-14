@@ -63,5 +63,4 @@ a much
 - line by line code highlight? or streamed like spartan neovim?
   i.e just highlight strings etc.
 - history broken?
-- don't put . full stop etc on newlines when wrapping.. more
-  intelligent wrapping in general
+- parse tables to be aligned

@@ -293,3 +293,62 @@ fn test_list_item() {
     assert!(clean.contains("First item"), "item text should be present");
     assert!(clean.contains("•"), "bullet • should be present");
 }
+
+#[test]
+fn test_trailing_punctuation_stays_on_line() {
+    // Test that trailing punctuation doesn't wrap to its own line
+    let mut output = Vec::new();
+    let mut renderer = Renderer::new(20, &mut output); // Very narrow width to force wrapping
+
+    // Send tokens that will fill the line and then send punctuation
+    let tokens = vec!["Hello", " ", "world", " ", "test", "."];
+    for token in tokens {
+        renderer.push(token, ContentType::Normal);
+    }
+    renderer.push("\n", ContentType::Normal);
+    renderer.flush();
+
+    let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
+    let clean = strip_ansi(&output_str);
+
+    // The period should be on the same line as "test", not on its own line
+    let lines: Vec<&str> = clean.lines().collect();
+    assert!(lines.len() >= 1, "should have at least one line");
+
+    // The last non-empty line should end with a period
+    if let Some(last_line) = lines.iter().rev().find(|l| !l.is_empty()) {
+        assert!(last_line.ends_with('.'), "punctuation should be at end of line, not on its own: {:?}", lines);
+    }
+}
+
+#[test]
+fn test_various_punctuation_stay_on_line() {
+    // Test various types of trailing punctuation
+    let test_cases = vec![
+        ("word", ".", "word."),
+        ("word", ",", "word,"),
+        ("word", ";", "word;"),
+        ("word", "!", "word!"),
+        ("word", "?", "word?"),
+        ("word", ")", "word)"),
+        ("word", "]", "word]"),
+        ("word", "}", "word}"),
+        ("word", "\"", "word\""),
+    ];
+
+    for (word, punct, expected) in test_cases {
+        let mut output = Vec::new();
+        let mut renderer = Renderer::new(10, &mut output);
+
+        renderer.push(word, ContentType::Normal);
+        renderer.push(punct, ContentType::Normal);
+        renderer.push("\n", ContentType::Normal);
+        renderer.flush();
+
+        let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
+        let clean = strip_ansi(&output_str);
+
+        // All on one line without wrap
+        assert_eq!(clean.trim(), expected, "for punctuation {}", punct);
+    }
+}
