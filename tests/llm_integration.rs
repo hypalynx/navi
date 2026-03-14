@@ -65,3 +65,59 @@ async fn test_parse_hello_response_streaming() {
         "Hello! 👋 How can I assist you today? Feel free to ask me anything!"
     );
 }
+
+#[test]
+fn test_parse_xml_tool_calls() {
+    // Test basic XML tool call parsing
+    let xml_content = r#"
+    Some content here
+    <tool_call><function=Bash><parameter=command>ls -la</parameter><parameter=description>List directory contents</parameter></function></tool_call>
+    More content
+    "#;
+
+    let tool_calls = navi::parse_xml_tool_calls(xml_content);
+
+    assert_eq!(tool_calls.len(), 1, "should parse one tool call");
+    assert_eq!(
+        tool_calls[0].name, "Bash",
+        "should have correct function name"
+    );
+    assert_eq!(
+        tool_calls[0].args.get("command").and_then(|v| v.as_str()),
+        Some("ls -la"),
+        "should extract command parameter"
+    );
+    assert_eq!(
+        tool_calls[0]
+            .args
+            .get("description")
+            .and_then(|v| v.as_str()),
+        Some("List directory contents"),
+        "should extract description parameter"
+    );
+}
+
+#[test]
+fn test_parse_multiple_xml_tool_calls() {
+    // Test parsing multiple XML tool calls
+    let xml_content = r#"
+    <tool_call><function=Read><parameter=filePath>/etc/hosts</parameter></function></tool_call>
+    <tool_call><function=Glob><parameter=pattern>*.rs</parameter></function></tool_call>
+    "#;
+
+    let tool_calls = navi::parse_xml_tool_calls(xml_content);
+
+    assert_eq!(tool_calls.len(), 2, "should parse two tool calls");
+
+    assert_eq!(tool_calls[0].name, "Read");
+    assert_eq!(
+        tool_calls[0].args.get("filePath").and_then(|v| v.as_str()),
+        Some("/etc/hosts")
+    );
+
+    assert_eq!(tool_calls[1].name, "Glob");
+    assert_eq!(
+        tool_calls[1].args.get("pattern").and_then(|v| v.as_str()),
+        Some("*.rs")
+    );
+}

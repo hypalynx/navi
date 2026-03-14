@@ -2,7 +2,9 @@ use crate::render::{ContentType, Renderer};
 use crate::tools::ToolCall;
 use futures::TryStreamExt;
 use owo_colors::OwoColorize;
+use regex::Regex;
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
@@ -326,6 +328,8 @@ async fn llm_request(
                 // Accumulate tool calls: index -> (id, name, args_so_far)
                 let mut tool_calls_acc: HashMap<usize, (String, String, String)> = HashMap::new();
 
+                let mut full_content = String::new();
+
                 while let Ok(Some(bytes)) = stream.try_next().await {
                     buffer.push_str(&String::from_utf8_lossy(&bytes));
 
@@ -333,6 +337,8 @@ async fn llm_request(
                     let lines: Vec<&str> = buffer.split('\n').collect();
                     for line in &lines[..lines.len() - 1] {
                         let _ = parse_line(line, &tx, &mut tool_calls_acc).await;
+                        full_content.push_str(line);
+                        full_content.push('\n');
                     }
                     // Keep the last (possibly incomplete) line
                     buffer = lines.last().unwrap_or(&"").to_string();
@@ -341,30 +347,38 @@ async fn llm_request(
                 // Handle any remaining buffer
                 if !buffer.is_empty() {
                     let _ = parse_line(&buffer, &tx, &mut tool_calls_acc).await;
+                    full_content.push_str(&buffer);
                 }
 
-                // Convert accumulated tool calls to ToolCall structs
-                if !tool_calls_acc.is_empty() {
+                // Determine format and parse accordingly
+                // Qwen sends either JSON or XML format, not both
+                let tool_calls = if has_xml_tool_calls(&full_content) {
+                    // XML format detected, use XML parser
+                    parse_xml_tool_calls(&full_content)
+                } else if !tool_calls_acc.is_empty() {
+                    // JSON format detected from streaming deltas
                     let mut sorted_calls: Vec<_> = tool_calls_acc.into_iter().collect();
                     sorted_calls.sort_by_key(|&(idx, _)| idx);
 
-                    let tool_calls: Vec<ToolCall> =
-                        sorted_calls
-                            .into_iter()
-                            .filter_map(|(_, (id, name, args_str))| {
-                                match serde_json::from_str::<
-                                    serde_json::Map<String, serde_json::Value>,
-                                >(&args_str)
-                                {
-                                    Ok(args) => Some(ToolCall { id, name, args }),
-                                    Err(_) => None,
-                                }
-                            })
-                            .collect();
+                    sorted_calls
+                        .into_iter()
+                        .filter_map(|(_, (id, name, args_str))| {
+                            match serde_json::from_str::<
+                                serde_json::Map<String, serde_json::Value>,
+                            >(&args_str)
+                            {
+                                Ok(args) => Some(ToolCall { id, name, args }),
+                                Err(_) => None,
+                            }
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
 
-                    if !tool_calls.is_empty() {
-                        let _ = tx.send(StreamEvent::ToolCalls(tool_calls)).await;
-                    }
+                // Send tool calls if any were found
+                if !tool_calls.is_empty() {
+                    let _ = tx.send(StreamEvent::ToolCalls(tool_calls)).await;
                 }
 
                 let _ = tx.send(StreamEvent::Done).await;
@@ -377,6 +391,66 @@ async fn llm_request(
     });
 
     Ok((rx, handle))
+}
+
+/// Detect if content contains XML-formatted tool calls
+fn has_xml_tool_calls(content: &str) -> bool {
+    content.contains("<tool_call>") && content.contains("</tool_call>")
+}
+
+/// Parse XML-formatted tool calls like:
+/// <tool_call><function=Bash><parameter=command>...</parameter></function></tool_call>
+pub fn parse_xml_tool_calls(content: &str) -> Vec<ToolCall> {
+    let mut tool_calls = Vec::new();
+
+    // Compile regexes once outside loops for efficiency
+    let tool_call_re = match Regex::new(r"<tool_call>(.+?)</tool_call>") {
+        Ok(re) => re,
+        Err(_) => return tool_calls,
+    };
+
+    let func_re = match Regex::new(r"<function=(\w+)>") {
+        Ok(re) => re,
+        Err(_) => return tool_calls,
+    };
+
+    let param_re = match Regex::new(r"<parameter=(\w+)>(.+?)</parameter>") {
+        Ok(re) => re,
+        Err(_) => return tool_calls,
+    };
+
+    // Find all <tool_call>...</tool_call> blocks
+    for cap in tool_call_re.captures_iter(content) {
+        if let Some(block) = cap.get(1) {
+            let block_text = block.as_str();
+
+            // Extract function name from <function=Name>
+            if let Some(func_cap) = func_re.captures(block_text)
+                && let Some(func_name) = func_cap.get(1)
+            {
+                let name = func_name.as_str().to_string();
+
+                // Extract parameters from <parameter=key>value</parameter>
+                let mut args = serde_json::Map::new();
+                for param_cap in param_re.captures_iter(block_text) {
+                    if let (Some(key_match), Some(value_match)) =
+                        (param_cap.get(1), param_cap.get(2))
+                    {
+                        let key = key_match.as_str().to_string();
+                        let value = value_match.as_str().to_string();
+                        args.insert(key, Value::String(value));
+                    }
+                }
+
+                // Generate a stable ID (use hash of content)
+                let id = format!("call_{}", tool_calls.len());
+
+                tool_calls.push(ToolCall { id, name, args });
+            }
+        }
+    }
+
+    tool_calls
 }
 
 pub async fn parse_line(

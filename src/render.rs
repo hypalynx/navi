@@ -76,7 +76,7 @@ impl<T: Write> Renderer<T> {
         while i < chars.len() {
             // Inside code span, only backtick is special
             if self.code_span {
-                if i + 1 <= chars.len() && chars[i] == '`' {
+                if i < chars.len() && chars[i] == '`' {
                     // Flush current segment if it has content
                     if !current_segment.text.is_empty() {
                         segments.push(current_segment);
@@ -100,7 +100,8 @@ impl<T: Write> Renderer<T> {
             }
 
             // Not in code span, check for delimiters (longer patterns first)
-            if i + 3 <= chars.len() && chars[i] == '*' && chars[i + 1] == '*' && chars[i + 2] == '*' {
+            if i + 3 <= chars.len() && chars[i] == '*' && chars[i + 1] == '*' && chars[i + 2] == '*'
+            {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
                     segments.push(current_segment);
@@ -118,7 +119,10 @@ impl<T: Write> Renderer<T> {
                 current_segment.bold = self.bold;
                 current_segment.italic = self.italic;
                 i += 3;
-            } else if i + 2 <= chars.len() && ((chars[i] == '*' && chars[i + 1] == '*') || (chars[i] == '_' && chars[i + 1] == '_')) {
+            } else if i + 2 <= chars.len()
+                && ((chars[i] == '*' && chars[i + 1] == '*')
+                    || (chars[i] == '_' && chars[i + 1] == '_'))
+            {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
                     segments.push(current_segment);
@@ -134,7 +138,7 @@ impl<T: Write> Renderer<T> {
                 self.bold = !self.bold;
                 current_segment.bold = self.bold;
                 i += 2;
-            } else if i + 1 <= chars.len() && (chars[i] == '*' || chars[i] == '_') {
+            } else if i < chars.len() && (chars[i] == '*' || chars[i] == '_') {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
                     segments.push(current_segment);
@@ -150,7 +154,7 @@ impl<T: Write> Renderer<T> {
                 self.italic = !self.italic;
                 current_segment.italic = self.italic;
                 i += 1;
-            } else if i + 1 <= chars.len() && chars[i] == '`' {
+            } else if i < chars.len() && chars[i] == '`' {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
                     segments.push(current_segment);
@@ -247,20 +251,19 @@ impl<T: Write> Renderer<T> {
                         if combined.starts_with("#") {
                             let hash_count = combined.chars().take_while(|&c| c == '#').count();
                             if hash_count <= 3 && hash_count < combined.len() {
-                                if let Some(pos) = combined.find(' ') {
-                                    if pos == hash_count {
-                                        // Valid heading
-                                        self.heading_level = hash_count as u8;
-                                        // Skip past the hashes and space we consumed
-                                        // Use character-aware indexing instead of byte indexing
-                                        let chars_to_skip = (pos + 1).saturating_sub(self.marker_buf.len());
-                                        processed_part = part
-                                            .chars()
-                                            .skip(chars_to_skip)
-                                            .collect::<String>();
-                                        self.at_line_start = false;
-                                        self.marker_buf.clear();
-                                    }
+                                if let Some(pos) = combined.find(' ')
+                                    && pos == hash_count
+                                {
+                                    // Valid heading
+                                    self.heading_level = hash_count as u8;
+                                    // Skip past the hashes and space we consumed
+                                    // Use character-aware indexing instead of byte indexing
+                                    let chars_to_skip =
+                                        (pos + 1).saturating_sub(self.marker_buf.len());
+                                    processed_part =
+                                        part.chars().skip(chars_to_skip).collect::<String>();
+                                    self.at_line_start = false;
+                                    self.marker_buf.clear();
                                 }
                             } else if hash_count == combined.len() {
                                 // Only # chars, save to marker_buf
@@ -329,7 +332,10 @@ impl<T: Write> Renderer<T> {
                         let remainder = processed_part.trim_start();
                         if !remainder.is_empty() {
                             let remainder_segments = self.render_inline(remainder);
-                            let remainder_len: usize = remainder_segments.iter().map(|s| self.display_len(&s.text)).sum();
+                            let remainder_len: usize = remainder_segments
+                                .iter()
+                                .map(|s| self.display_len(&s.text))
+                                .sum();
                             for segment in remainder_segments {
                                 self.print_segment(&segment, content_type);
                             }
@@ -448,6 +454,11 @@ impl<T: Write> Renderer<T> {
         }
 
         // Punctuation that commonly trails words
-        trimmed.chars().all(|c| matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '}' | '"' | '\'' | '>' | '-'))
+        trimmed.chars().all(|c| {
+            matches!(
+                c,
+                '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '}' | '"' | '\'' | '>' | '-'
+            )
+        })
     }
 }

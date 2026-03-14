@@ -44,12 +44,24 @@ fn test_render_simple_markdown() {
     // Strip ANSI codes and verify markdown syntax is gone
     let clean = strip_ansi(&output_str);
     assert!(!output_str.is_empty(), "output should not be empty");
-    assert!(!clean.contains('#'), "heading # should be stripped from output");
+    assert!(
+        !clean.contains('#'),
+        "heading # should be stripped from output"
+    );
     assert!(clean.contains("Hello"), "heading text should be present");
-    assert!(!clean.contains("**"), "bold ** should be stripped from output");
+    assert!(
+        !clean.contains("**"),
+        "bold ** should be stripped from output"
+    );
     assert!(clean.contains("bold"), "bold text should be present");
-    assert!(output_str.contains("\x1b[1;33m"), "heading should have bold yellow ANSI code");
-    assert!(output_str.contains("\x1b[1m"), "bold text should have bold ANSI code");
+    assert!(
+        output_str.contains("\x1b[1;33m"),
+        "heading should have bold yellow ANSI code"
+    );
+    assert!(
+        output_str.contains("\x1b[1m"),
+        "bold text should have bold ANSI code"
+    );
 }
 
 #[test]
@@ -103,9 +115,15 @@ fn test_heading_levels() {
     assert!(clean.contains("H3 Heading"), "H3 text should be present");
 
     // Verify correct ANSI codes
-    assert!(output_str.contains("\x1b[1;33m"), "H1 should be bold yellow");
+    assert!(
+        output_str.contains("\x1b[1;33m"),
+        "H1 should be bold yellow"
+    );
     assert!(output_str.contains("\x1b[1;36m"), "H2 should be bold cyan");
-    assert!(output_str.contains("\x1b[1;35m"), "H3 should be bold magenta");
+    assert!(
+        output_str.contains("\x1b[1;35m"),
+        "H3 should be bold magenta"
+    );
 }
 
 #[test]
@@ -125,10 +143,16 @@ fn test_inline_bold() {
 
     // Verify text present
     assert!(clean.contains("bold"), "bold text should be present");
-    assert!(clean.contains("This is"), "surrounding text should be present");
+    assert!(
+        clean.contains("This is"),
+        "surrounding text should be present"
+    );
 
     // Verify ANSI code
-    assert!(output_str.contains("\x1b[1m"), "bold should have bold ANSI code");
+    assert!(
+        output_str.contains("\x1b[1m"),
+        "bold should have bold ANSI code"
+    );
 }
 
 #[test]
@@ -144,13 +168,19 @@ fn test_inline_italic() {
     let clean = strip_ansi(&output_str);
 
     // Verify * stripped from content (not from "is")
-    assert!(!clean.contains("*italic*"), "* should be stripped around italic");
+    assert!(
+        !clean.contains("*italic*"),
+        "* should be stripped around italic"
+    );
 
     // Verify text present
     assert!(clean.contains("italic"), "italic text should be present");
 
     // Verify ANSI code
-    assert!(output_str.contains("\x1b[3m"), "italic should have italic ANSI code");
+    assert!(
+        output_str.contains("\x1b[3m"),
+        "italic should have italic ANSI code"
+    );
 }
 
 #[test]
@@ -173,7 +203,10 @@ fn test_inline_code() {
     assert!(clean.contains("Use"), "surrounding text should be present");
 
     // Verify ANSI code (yellow)
-    assert!(output_str.contains("\x1b[33m"), "code span should be yellow");
+    assert!(
+        output_str.contains("\x1b[33m"),
+        "code span should be yellow"
+    );
 }
 
 #[test]
@@ -194,13 +227,19 @@ fn test_delimiter_split_across_tokens() {
     let clean = strip_ansi(&output_str);
 
     // Verify ** stripped
-    assert!(!clean.contains("**"), "** should be stripped even when split");
+    assert!(
+        !clean.contains("**"),
+        "** should be stripped even when split"
+    );
 
     // Verify bold text present
     assert!(clean.contains("bold"), "bold text should be present");
 
     // Verify ANSI code
-    assert!(output_str.contains("\x1b[1m"), "split bold should have ANSI code");
+    assert!(
+        output_str.contains("\x1b[1m"),
+        "split bold should have ANSI code"
+    );
 }
 
 #[test]
@@ -221,11 +260,20 @@ fn test_marker_buf_flush_on_newline() {
     let clean = strip_ansi(&output_str);
 
     // Heading # should be stripped
-    assert!(!clean.contains('#'), "# should be stripped even when split across tokens");
-    assert!(clean.contains("Heading text"), "heading text should be present");
+    assert!(
+        !clean.contains('#'),
+        "# should be stripped even when split across tokens"
+    );
+    assert!(
+        clean.contains("Heading text"),
+        "heading text should be present"
+    );
 
     // Verify heading ANSI code applied
-    assert!(output_str.contains("\x1b[1;33m"), "heading should have ANSI code");
+    assert!(
+        output_str.contains("\x1b[1;33m"),
+        "heading should have ANSI code"
+    );
 }
 
 #[test]
@@ -244,12 +292,18 @@ fn test_code_span_disables_formatting() {
     assert!(!clean.contains('`'), "backticks should be stripped");
 
     // * inside code span should be literal
-    assert!(clean.contains("*literal*"), "* inside code span should be literal");
+    assert!(
+        clean.contains("*literal*"),
+        "* inside code span should be literal"
+    );
 
     // Should NOT have italic ANSI code
     // (only code span yellow ANSI)
     let code_part = output_str.split("\x1b[33m").nth(1).unwrap_or("");
-    assert!(!code_part.starts_with("\x1b[3m"), "* inside code span should not be italic");
+    assert!(
+        !code_part.starts_with("\x1b[3m"),
+        "* inside code span should not be italic"
+    );
 }
 
 #[test]
@@ -268,10 +322,16 @@ fn test_blockquote() {
     assert!(!clean.contains('>'), "> should be stripped");
 
     // Verify text present
-    assert!(clean.contains("This is a quote"), "quote text should be present");
+    assert!(
+        clean.contains("This is a quote"),
+        "quote text should be present"
+    );
 
     // Verify ANSI code (dark gray)
-    assert!(output_str.contains("\x1b[90m"), "blockquote should be dark gray");
+    assert!(
+        output_str.contains("\x1b[90m"),
+        "blockquote should be dark gray"
+    );
 }
 
 #[test]
@@ -317,7 +377,11 @@ fn test_trailing_punctuation_stays_on_line() {
 
     // The last non-empty line should end with a period
     if let Some(last_line) = lines.iter().rev().find(|l| !l.is_empty()) {
-        assert!(last_line.ends_with('.'), "punctuation should be at end of line, not on its own: {:?}", lines);
+        assert!(
+            last_line.ends_with('.'),
+            "punctuation should be at end of line, not on its own: {:?}",
+            lines
+        );
     }
 }
 
