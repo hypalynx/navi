@@ -13,9 +13,18 @@ pub enum ContentType {
     Thinking,
 }
 
+#[derive(PartialEq)]
 enum Mode {
     Normal,
     CodeBlock,
+}
+
+struct Segment {
+    text: String,
+    bold: bool,
+    italic: bool,
+    code_span: bool,
+    strikethrough: bool,
 }
 
 pub struct Renderer<T: Write> {
@@ -24,7 +33,13 @@ pub struct Renderer<T: Write> {
     current_line_length: usize,
     width: usize,
     at_line_start: bool,
-    is_heading: bool,
+    heading_level: u8,
+    bold: bool,
+    italic: bool,
+    code_span: bool,
+    strikethrough: bool,
+    blockquote: bool,
+    marker_buf: String,
 }
 
 impl<T: Write> Renderer<T> {
@@ -35,77 +50,357 @@ impl<T: Write> Renderer<T> {
             current_line_length: 0,
             width,
             at_line_start: true,
-            is_heading: false,
+            heading_level: 0,
+            bold: false,
+            italic: false,
+            code_span: false,
+            strikethrough: false,
+            blockquote: false,
+            marker_buf: String::new(),
         }
+    }
+
+    fn render_inline(&mut self, text: &str) -> Vec<Segment> {
+        let mut segments = Vec::new();
+        let mut current_segment = Segment {
+            text: String::new(),
+            bold: self.bold,
+            italic: self.italic,
+            code_span: self.code_span,
+            strikethrough: self.strikethrough,
+        };
+
+        let chars: Vec<char> = text.chars().collect();
+        let mut i = 0;
+
+        while i < chars.len() {
+            // Inside code span, only backtick is special
+            if self.code_span {
+                if i + 1 <= chars.len() && chars[i] == '`' {
+                    // Flush current segment if it has content
+                    if !current_segment.text.is_empty() {
+                        segments.push(current_segment);
+                        current_segment = Segment {
+                            text: String::new(),
+                            bold: self.bold,
+                            italic: self.italic,
+                            code_span: self.code_span,
+                            strikethrough: self.strikethrough,
+                        };
+                    }
+                    // Toggle code_span
+                    self.code_span = false;
+                    current_segment.code_span = self.code_span;
+                    i += 1;
+                } else {
+                    current_segment.text.push(chars[i]);
+                    i += 1;
+                }
+                continue;
+            }
+
+            // Not in code span, check for delimiters (longer patterns first)
+            if i + 3 <= chars.len() && chars[i] == '*' && chars[i + 1] == '*' && chars[i + 2] == '*' {
+                // Flush current segment
+                if !current_segment.text.is_empty() {
+                    segments.push(current_segment);
+                    current_segment = Segment {
+                        text: String::new(),
+                        bold: self.bold,
+                        italic: self.italic,
+                        code_span: self.code_span,
+                        strikethrough: self.strikethrough,
+                    };
+                }
+                // Toggle bold and italic
+                self.bold = !self.bold;
+                self.italic = !self.italic;
+                current_segment.bold = self.bold;
+                current_segment.italic = self.italic;
+                i += 3;
+            } else if i + 2 <= chars.len() && ((chars[i] == '*' && chars[i + 1] == '*') || (chars[i] == '_' && chars[i + 1] == '_')) {
+                // Flush current segment
+                if !current_segment.text.is_empty() {
+                    segments.push(current_segment);
+                    current_segment = Segment {
+                        text: String::new(),
+                        bold: self.bold,
+                        italic: self.italic,
+                        code_span: self.code_span,
+                        strikethrough: self.strikethrough,
+                    };
+                }
+                // Toggle bold
+                self.bold = !self.bold;
+                current_segment.bold = self.bold;
+                i += 2;
+            } else if i + 1 <= chars.len() && (chars[i] == '*' || chars[i] == '_') {
+                // Flush current segment
+                if !current_segment.text.is_empty() {
+                    segments.push(current_segment);
+                    current_segment = Segment {
+                        text: String::new(),
+                        bold: self.bold,
+                        italic: self.italic,
+                        code_span: self.code_span,
+                        strikethrough: self.strikethrough,
+                    };
+                }
+                // Toggle italic
+                self.italic = !self.italic;
+                current_segment.italic = self.italic;
+                i += 1;
+            } else if i + 1 <= chars.len() && chars[i] == '`' {
+                // Flush current segment
+                if !current_segment.text.is_empty() {
+                    segments.push(current_segment);
+                    current_segment = Segment {
+                        text: String::new(),
+                        bold: self.bold,
+                        italic: self.italic,
+                        code_span: self.code_span,
+                        strikethrough: self.strikethrough,
+                    };
+                }
+                // Toggle code_span
+                self.code_span = !self.code_span;
+                current_segment.code_span = self.code_span;
+                i += 1;
+            } else if i + 2 <= chars.len() && chars[i] == '~' && chars[i + 1] == '~' {
+                // Flush current segment
+                if !current_segment.text.is_empty() {
+                    segments.push(current_segment);
+                    current_segment = Segment {
+                        text: String::new(),
+                        bold: self.bold,
+                        italic: self.italic,
+                        code_span: self.code_span,
+                        strikethrough: self.strikethrough,
+                    };
+                }
+                // Toggle strikethrough
+                self.strikethrough = !self.strikethrough;
+                current_segment.strikethrough = self.strikethrough;
+                i += 2;
+            } else {
+                // Regular character
+                current_segment.text.push(chars[i]);
+                i += 1;
+            }
+        }
+
+        // Flush final segment
+        if !current_segment.text.is_empty() {
+            segments.push(current_segment);
+        }
+
+        segments
     }
 
     pub fn push(&mut self, token: &str, content_type: ContentType) {
         // Handle newlines
         for (i, part) in token.split('\n').enumerate() {
             if i > 0 {
+                // Flush marker_buf as literal text at EOL
+                if !self.marker_buf.is_empty() {
+                    let segments = vec![Segment {
+                        text: self.marker_buf.clone(),
+                        bold: false,
+                        italic: false,
+                        code_span: false,
+                        strikethrough: false,
+                    }];
+                    for segment in segments {
+                        self.print_segment(&segment, content_type);
+                    }
+                    self.marker_buf.clear();
+                }
+
                 let _ = writeln!(self.writer);
-                if self.is_heading {
+                if self.heading_level > 0 {
                     let _ = writeln!(self.writer);
-                    self.is_heading = false;
+                    self.heading_level = 0;
                 }
                 self.current_line_length = 0;
                 self.at_line_start = true;
+                self.blockquote = false;
             }
 
             if !part.is_empty() {
-                // At start of a logical line, check for markdown
+                let mut processed_part = part.to_string();
+
                 if self.at_line_start {
+                    // Check for code block fence
                     if part.trim_start().starts_with("```") {
                         self.mode = match &self.mode {
                             Mode::CodeBlock => Mode::Normal,
                             Mode::Normal => Mode::CodeBlock,
                         };
-                    } else if part.trim_start().starts_with("#") {
-                        self.is_heading = true;
+                        self.at_line_start = false;
+                        continue;
                     }
-                    self.at_line_start = false;
+
+                    // Check for heading (with marker_buf support for split delimiters)
+                    if part.starts_with("#") || !self.marker_buf.is_empty() {
+                        let combined = format!("{}{}", self.marker_buf, part);
+
+                        if combined.starts_with("#") {
+                            let hash_count = combined.chars().take_while(|&c| c == '#').count();
+                            if hash_count <= 3 && hash_count < combined.len() {
+                                if let Some(pos) = combined.find(' ') {
+                                    if pos == hash_count {
+                                        // Valid heading
+                                        self.heading_level = hash_count as u8;
+                                        // Skip past the hashes and space we consumed
+                                        // Use character-aware indexing instead of byte indexing
+                                        let chars_to_skip = (pos + 1).saturating_sub(self.marker_buf.len());
+                                        processed_part = part
+                                            .chars()
+                                            .skip(chars_to_skip)
+                                            .collect::<String>();
+                                        self.at_line_start = false;
+                                        self.marker_buf.clear();
+                                    }
+                                }
+                            } else if hash_count == combined.len() {
+                                // Only # chars, save to marker_buf
+                                self.marker_buf = combined.clone();
+                                continue;
+                            }
+                        } else {
+                            // Not a heading, clear marker_buf if it was set
+                            self.marker_buf.clear();
+                        }
+                    }
+
+                    // Check for blockquote
+                    if processed_part.starts_with("> ") {
+                        self.blockquote = true;
+                        processed_part = processed_part.chars().skip(2).collect::<String>();
+                        self.at_line_start = false;
+                    }
+
+                    // Check for list items
+                    if (processed_part.starts_with("- ") || processed_part.starts_with("* "))
+                        && self.heading_level == 0
+                        && !self.blockquote
+                    {
+                        self.print_segment(
+                            &Segment {
+                                text: "• ".to_string(),
+                                bold: false,
+                                italic: false,
+                                code_span: false,
+                                strikethrough: false,
+                            },
+                            content_type,
+                        );
+                        processed_part = processed_part.chars().skip(2).collect::<String>();
+                        self.current_line_length += 2; // "• " is 2 chars
+                        self.at_line_start = false;
+                    }
                 }
 
-                // Word wrapping: check if token fits on current line
-                let part_len = self.display_len(part);
-                if self.current_line_length == 0 {
-                    // Start of line
-                    self.print_word(part, content_type);
-                    self.current_line_length = part_len;
-                } else if self.current_line_length + part_len <= self.width {
-                    // Fits on current line
-                    self.print_word(part, content_type);
-                    self.current_line_length += part_len;
-                } else if part.starts_with(' ') {
-                    // Token is whitespace: wrap then skip the space
-                    let _ = writeln!(self.writer);
-                    self.current_line_length = 0;
-                    self.at_line_start = false;
-                } else {
-                    // Token doesn't fit: wrap line first
-                    let _ = writeln!(self.writer);
-                    self.print_word(part, content_type);
-                    self.current_line_length = part_len;
-                    self.at_line_start = false;
+                if !processed_part.is_empty() {
+                    let segments = self.render_inline(&processed_part);
+
+                    // Calculate total display length
+                    let total_len: usize = segments.iter().map(|s| self.display_len(&s.text)).sum();
+
+                    if self.current_line_length == 0 {
+                        // Start of line
+                        for segment in segments {
+                            self.print_segment(&segment, content_type);
+                        }
+                        self.current_line_length = total_len;
+                    } else if self.current_line_length + total_len <= self.width {
+                        // Fits on current line
+                        for segment in segments {
+                            self.print_segment(&segment, content_type);
+                        }
+                        self.current_line_length += total_len;
+                    } else if processed_part.starts_with(' ') {
+                        // Token is whitespace: wrap then skip the space
+                        let _ = writeln!(self.writer);
+                        self.current_line_length = 0;
+                        self.at_line_start = false;
+                    } else {
+                        // Token doesn't fit: wrap line first
+                        let _ = writeln!(self.writer);
+                        for segment in segments {
+                            self.print_segment(&segment, content_type);
+                        }
+                        self.current_line_length = total_len;
+                        self.at_line_start = false;
+                    }
                 }
             }
         }
     }
 
     pub fn flush(&mut self) {
+        // Flush any remaining marker_buf
+        if !self.marker_buf.is_empty() {
+            let segments = vec![Segment {
+                text: self.marker_buf.clone(),
+                bold: false,
+                italic: false,
+                code_span: false,
+                strikethrough: false,
+            }];
+            for segment in segments {
+                self.print_segment(&segment, ContentType::Normal);
+            }
+            self.marker_buf.clear();
+        }
+
         if self.current_line_length > 0 {
             let _ = writeln!(self.writer);
         }
     }
 
-    fn print_word(&mut self, word: &str, word_type: ContentType) {
-        let (start_code, end_code) = match (&self.mode, self.is_heading, word_type) {
-            (Mode::CodeBlock, _, _) => ("\x1b[2m", "\x1b[0m"),
-            (_, true, _) => ("\x1b[1m", "\x1b[0m"),
-            (_, _, ContentType::Thinking) => ("\x1b[90m\x1b[3m", "\x1b[0m"),
-            _ => ("", ""),
+    fn print_segment(&mut self, segment: &Segment, content_type: ContentType) {
+        let start_code = if self.mode == Mode::CodeBlock {
+            "\x1b[2m".to_string() // dim
+        } else if self.heading_level == 1 {
+            "\x1b[1;33m".to_string() // bold yellow
+        } else if self.heading_level == 2 {
+            "\x1b[1;36m".to_string() // bold cyan
+        } else if self.heading_level == 3 {
+            "\x1b[1;35m".to_string() // bold magenta
+        } else if content_type == ContentType::Thinking {
+            "\x1b[90;3m".to_string() // dark gray italic
+        } else if self.blockquote {
+            "\x1b[90m".to_string() // dark gray
+        } else {
+            // Compose from inline flags
+            let mut parts = Vec::new();
+            if segment.bold {
+                parts.push("1");
+            }
+            if segment.italic {
+                parts.push("3");
+            }
+            if segment.strikethrough {
+                parts.push("9");
+            }
+
+            if segment.code_span {
+                "\x1b[33m".to_string() // yellow for code spans
+            } else if !parts.is_empty() {
+                format!("\x1b[{}m", parts.join(";"))
+            } else {
+                String::new()
+            }
         };
-        let _ = write!(self.writer, "{}{}{}", start_code, word, end_code);
+
+        let end_code = if start_code.is_empty() {
+            String::new()
+        } else {
+            "\x1b[0m".to_string()
+        };
+
+        let _ = write!(self.writer, "{}{}{}", start_code, segment.text, end_code);
         let _ = self.writer.flush();
     }
 

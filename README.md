@@ -60,3 +60,10 @@ a much
 - `needs_spacing` & `had_thinking` probably don't need to exist
   in Renderer.
 - split render into markdown/layout/syntax submods
+- use in neovim? i.g visual highlight and then prompt for extra
+  context? mini/shadow term like conjure?
+- line by line code highlight? or streamed like spartan neovim?
+  i.e just highlight strings etc.
+- history broken?
+- don't put . full stop etc on newlines when wrapping.. more
+  intelligent wrapping in general
