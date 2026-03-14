@@ -32,7 +32,7 @@ pub struct Message {
     pub tool_call_id: Option<String>,
 }
 
-pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyhow::Result<()> {
+pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16, thinking_enabled: bool) -> anyhow::Result<()> {
     history.push(Message {
         role: "user".to_string(),
         content: Some(input.to_string()),
@@ -51,7 +51,7 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
             break;
         }
 
-        match llm_request(history, port).await {
+        match llm_request(history, port, thinking_enabled).await {
             Ok((mut rx, llm_handle)) => {
                 let mut content = String::new();
                 let mut thinking = String::new();
@@ -218,6 +218,7 @@ pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16) -> anyh
 async fn llm_request(
     messages: &[Message],
     port: u16,
+    thinking_enabled: bool,
 ) -> anyhow::Result<(mpsc::Receiver<StreamEvent>, tokio::task::JoinHandle<()>)> {
     let (tx, rx) = mpsc::channel(100);
     let messages = messages.to_vec();
@@ -225,11 +226,14 @@ async fn llm_request(
     let handle = tokio::spawn(async move {
         let client = reqwest::Client::new();
 
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": "qwen3.5-2b",
             "messages": messages,
             "stream": true,
             "tools": crate::tools::get_tool_definitions(),
+            "chat_template_kwargs": {
+                "enable_thinking": thinking_enabled
+            }
         });
 
         let url = format!("http://127.0.0.1:{}/v1/chat/completions", port);

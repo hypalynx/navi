@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let Some(cmd) = cli.exec {
-        execute(&cmd, &mut history, cli.port).await?;
+        execute(&cmd, &mut history, cli.port, false).await?;
         return Ok(());
     }
 
