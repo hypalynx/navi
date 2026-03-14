@@ -50,17 +50,10 @@ programs as humans are left out of the loop. We're all still
 learning how to take advantage of LLMs but I'm experimenting with
 a much 
 
-
-## Tasks / Features to implement
-
-- `$` execute your own shell command like `@`
-- `@` address a file
-
 ## Technical Tasks
 - split render into markdown/layout/syntax submods
 - use in neovim? i.g visual highlight and then prompt for extra
   context? mini/shadow term like conjure?
 - line by line code highlight? or streamed like spartan neovim?
   i.e just highlight strings etc.
-- history broken?
 - parse tables to be aligned
