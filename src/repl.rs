@@ -5,14 +5,18 @@ use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::{Cmd, Completer, Editor, EventHandler, Helper, Hinter, Validator};
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Helper, Completer, Hinter, Validator)]
 struct ReplHelper(Arc<AtomicBool>);
 
 impl Highlighter for ReplHelper {
-    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(&'s self, prompt: &'p str, _default: bool) -> Cow<'b, str> {
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        prompt: &'p str,
+        _default: bool,
+    ) -> Cow<'b, str> {
         if self.0.load(Ordering::Relaxed) {
             Cow::Owned(format!("\x1b[35m{}\x1b[0m", prompt))
         } else {
@@ -34,7 +38,13 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> any
 
     struct ToggleHandler(Arc<AtomicBool>);
     impl rustyline::ConditionalEventHandler for ToggleHandler {
-        fn handle(&self, _evt: &rustyline::Event, _n: rustyline::RepeatCount, _positive: bool, _ctx: &rustyline::EventContext) -> Option<Cmd> {
+        fn handle(
+            &self,
+            _evt: &rustyline::Event,
+            _n: rustyline::RepeatCount,
+            _positive: bool,
+            _ctx: &rustyline::EventContext,
+        ) -> Option<Cmd> {
             self.0.fetch_xor(true, Ordering::Relaxed);
             Some(Cmd::Repaint)
         }
@@ -59,7 +69,13 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> any
 
                 rl.add_history_entry(line)?;
                 print_user(line);
-                execute(line, history, port, thinking_enabled.load(Ordering::Relaxed)).await?;
+                execute(
+                    line,
+                    history,
+                    port,
+                    thinking_enabled.load(Ordering::Relaxed),
+                )
+                .await?;
             }
             Err(ReadlineError::Interrupted) => break Ok(()),
             Err(ReadlineError::Eof) => break Ok(()),

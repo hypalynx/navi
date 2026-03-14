@@ -1,6 +1,6 @@
 use navi::{StreamEvent, parse_line};
-use tokio::sync::mpsc;
 use std::collections::HashMap;
+use tokio::sync::mpsc;
 
 #[tokio::test]
 async fn test_parse_hello_response_streaming() {

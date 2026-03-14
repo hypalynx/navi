@@ -32,7 +32,12 @@ pub struct Message {
     pub tool_call_id: Option<String>,
 }
 
-pub async fn execute(input: &str, history: &mut Vec<Message>, port: u16, thinking_enabled: bool) -> anyhow::Result<()> {
+pub async fn execute(
+    input: &str,
+    history: &mut Vec<Message>,
+    port: u16,
+    thinking_enabled: bool,
+) -> anyhow::Result<()> {
     history.push(Message {
         role: "user".to_string(),
         content: Some(input.to_string()),
@@ -226,7 +231,7 @@ async fn llm_request(
     let handle = tokio::spawn(async move {
         let client = reqwest::Client::new();
 
-        let mut body = serde_json::json!({
+        let body = serde_json::json!({
             "model": "qwen3.5-2b",
             "messages": messages,
             "stream": true,
