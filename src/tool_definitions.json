@@ -78,5 +78,27 @@
         "additionalProperties": false
       }
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Bash",
+      "description": "Execute a shell command and return output. Dangerous commands are blocked. Output truncated after 500 lines; use filters to narrow output.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute"
+          },
+          "description": {
+            "type": "string",
+            "description": "Brief description of what this command does"
+          }
+        },
+        "required": ["command", "description"],
+        "additionalProperties": false
+      }
+    }
   }
 ]

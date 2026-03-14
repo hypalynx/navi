@@ -1,5 +1,5 @@
 use clap::Parser;
-use navi::{Message, execute, repl};
+use navi::{create_initial_history, execute, repl};
 
 #[derive(Parser)]
 #[command(name = "navi")]
@@ -20,7 +20,7 @@ const NAVI_VERSION: &str = env!("CARGO_PKG_VERSION");
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let mut history: Vec<Message> = Vec::new();
+    let mut history = create_initial_history();
 
     if cli.version {
         println!("navi v{}", NAVI_VERSION);

@@ -24,6 +24,7 @@ pub async fn execute_tool(tool: &ToolCall) -> (String, String) {
         "Glob" => execute_glob(&tool.args),
         "Grep" => execute_grep(&tool.args),
         "Webfetch" => execute_webfetch(&tool.args).await,
+        "Bash" => execute_bash(&tool.args),
         _ => {
             let error = format!("Unknown tool: {}", tool.name);
             (error.clone(), error)
@@ -416,4 +417,150 @@ fn strip_html_tags(html: &str) -> String {
 
     let lines: Vec<&str> = result.lines().filter(|l| !l.trim().is_empty()).collect();
     lines.join("\n")
+}
+
+fn validate_bash_command(command: &str) -> Result<(), String> {
+    let cmd_lower = command.to_lowercase();
+
+    // Blocked commands - all dangerous operations are denied
+    let blocked = [
+        ("dd", "disk write operations (data destruction risk)"),
+        ("mkfs", "filesystem formatting (irreversible)"),
+        ("reboot", "system reboot (would interrupt session)"),
+        ("shutdown", "system shutdown (would interrupt session)"),
+        ("rm ", "file deletion (data loss risk)"),
+        ("rm\t", "file deletion (data loss risk)"),
+        ("mv ", "file move/rename (could overwrite data)"),
+        ("truncate", "file truncation (destructive)"),
+        ("git push --force", "force git push (overwrites history)"),
+        ("git push -f", "force git push (overwrites history)"),
+        (" | bash", "pipe to bash (code injection risk)"),
+        (" | sh", "pipe to shell (code injection risk)"),
+    ];
+
+    for (pattern, reason) in &blocked {
+        if is_command_match(&cmd_lower, pattern) {
+            return Err(format!("Command blocked for safety: {}", reason));
+        }
+    }
+
+    Ok(())
+}
+
+fn is_command_match(command: &str, pattern: &str) -> bool {
+    // Check if pattern appears as a command (beginning of string or after operators)
+    if command.starts_with(pattern) {
+        return true;
+    }
+
+    // Check after common operators: ;, |, &, $(), ``, etc
+    for operator in &["; ", "| ", "& ", "$( ", "` ", "\t", "\n"] {
+        if let Some(pos) = command.find(operator) {
+            let after = &command[pos + operator.len()..];
+            if after.starts_with(pattern) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn execute_bash(args: &serde_json::Map<String, Value>) -> (String, String) {
+    let command = match args.get("command").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => {
+            let error = "Error: 'command' parameter is required".to_string();
+            return (error.clone(), error);
+        }
+    };
+
+    // Validate command for dangerous operations
+    if let Err(reason) = validate_bash_command(command) {
+        return (reason.clone(), reason);
+    }
+
+    // Execute the command
+    match std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .output()
+    {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+            let result = if output.status.success() {
+                stdout
+            } else if !stderr.is_empty() {
+                stderr
+            } else {
+                format!("Command exited with status: {}", output.status)
+            };
+
+            let output_lines: Vec<&str> = result.lines().collect();
+            let total_lines = output_lines.len();
+
+            let summary = if total_lines > MAX_OUTPUT_LINES {
+                format!(
+                    "Command output ({} lines, showing first {})",
+                    total_lines,
+                    MAX_OUTPUT_LINES - MAX_OUTPUT_CONTEXT
+                )
+            } else {
+                format!("Command output ({} lines)", total_lines)
+            };
+
+            let result_text = if total_lines > MAX_OUTPUT_LINES {
+                let head_lines = MAX_OUTPUT_LINES - MAX_OUTPUT_CONTEXT;
+                let head: Vec<String> = output_lines
+                    .iter()
+                    .take(head_lines)
+                    .map(|s| {
+                        if s.len() > MAX_LINE_WIDTH {
+                            format!("{}...", &s[..MAX_LINE_WIDTH])
+                        } else {
+                            s.to_string()
+                        }
+                    })
+                    .collect();
+                let tail: Vec<String> = output_lines
+                    .iter()
+                    .skip(total_lines - MAX_OUTPUT_CONTEXT)
+                    .map(|s| {
+                        if s.len() > MAX_LINE_WIDTH {
+                            format!("{}...", &s[..MAX_LINE_WIDTH])
+                        } else {
+                            s.to_string()
+                        }
+                    })
+                    .collect();
+                let skipped = total_lines - head_lines - MAX_OUTPUT_CONTEXT;
+                format!(
+                    "{}\n\n[... {} lines truncated ...]\n\n{}",
+                    head.join("\n"),
+                    skipped,
+                    tail.join("\n")
+                )
+            } else {
+                output_lines
+                    .iter()
+                    .map(|s| {
+                        if s.len() > MAX_LINE_WIDTH {
+                            format!("{}...", &s[..MAX_LINE_WIDTH])
+                        } else {
+                            s.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+
+            (summary, result_text)
+        }
+        Err(e) => {
+            let error = format!("Error executing command: {}", e);
+            (error.clone(), error)
+        }
+    }
 }

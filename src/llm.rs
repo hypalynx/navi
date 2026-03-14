@@ -65,7 +65,9 @@ pub async fn execute(
 
                 // Spinner state
                 let spinner_active = Arc::new(AtomicBool::new(true));
+                let spinner_done = Arc::new(AtomicBool::new(false));
                 let spinner_active_clone = spinner_active.clone();
+                let spinner_done_clone = spinner_done.clone();
 
                 // Start spinner task - only shows during initial wait
                 let spinner_handle = tokio::spawn(async move {
@@ -79,6 +81,7 @@ pub async fn execute(
                     // Clear spinner line
                     print!("\r\x1b[K");
                     let _ = std::io::stdout().flush();
+                    spinner_done_clone.store(true, Ordering::Release);
                 });
 
                 let mut first_event = true;
@@ -101,6 +104,10 @@ pub async fn execute(
                             if let Some(event) = result {
                                 if first_event {
                                     spinner_active.store(false, Ordering::Relaxed);
+                                    // Wait for spinner to finish clearing
+                                    while !spinner_done.load(Ordering::Acquire) {
+                                        tokio::task::yield_now().await;
+                                    }
                                 }
                                 first_event = false;
                                 match event {
@@ -220,6 +227,54 @@ pub async fn execute(
 // TODO get api_key if needed
 // TODO get hostname from config, default to localhost
 // TODO need to pass client config in here so it's configurable/testable.
+fn format_messages_for_api(messages: &[Message]) -> Vec<serde_json::Value> {
+    messages
+        .iter()
+        .map(|m| {
+            if m.role == "tool" {
+                // Tool results: content as string, with tool_call_id
+                let mut msg = serde_json::json!({
+                    "role": "tool",
+                    "content": m.content.as_deref().unwrap_or("")
+                });
+                if let Some(tool_call_id) = &m.tool_call_id {
+                    msg["tool_call_id"] = serde_json::json!(tool_call_id);
+                }
+                msg
+            } else if m.role == "assistant" && m.tool_calls.is_some() {
+                // Assistant message with tool_calls
+                let mut msg = serde_json::json!({
+                    "role": "assistant",
+                    "tool_calls": m.tool_calls.clone().unwrap_or_default()
+                });
+                if let Some(content) = &m.content {
+                    if !content.trim().is_empty() {
+                        msg["content"] = serde_json::json!([{"type": "text", "text": content}]);
+                    } else {
+                        msg["content"] = serde_json::Value::Null;
+                    }
+                } else {
+                    msg["content"] = serde_json::Value::Null;
+                }
+                msg
+            } else {
+                // Regular messages: array format content
+                if let Some(content) = &m.content {
+                    serde_json::json!({
+                        "role": m.role,
+                        "content": [{"type": "text", "text": content}]
+                    })
+                } else {
+                    serde_json::json!({
+                        "role": m.role,
+                        "content": serde_json::Value::Null
+                    })
+                }
+            }
+        })
+        .collect()
+}
+
 async fn llm_request(
     messages: &[Message],
     port: u16,
@@ -231,15 +286,31 @@ async fn llm_request(
     let handle = tokio::spawn(async move {
         let client = reqwest::Client::new();
 
-        let body = serde_json::json!({
+        let formatted_messages = format_messages_for_api(&messages);
+        let mut body = serde_json::json!({
             "model": "qwen3.5-2b",
-            "messages": messages,
+            "messages": formatted_messages,
             "stream": true,
             "tools": crate::tools::get_tool_definitions(),
             "chat_template_kwargs": {
                 "enable_thinking": thinking_enabled
             }
         });
+
+        // Apply parameters based on thinking mode
+        if thinking_enabled {
+            // Thinking profile: encourage exploration and reasoning
+            body["temperature"] = serde_json::json!(0.6);
+            body["top_p"] = serde_json::json!(0.95);
+            body["top_k"] = serde_json::json!(20);
+            body["presence_penalty"] = serde_json::json!(0.0);
+        } else {
+            // Non-thinking profile: focus on coherence
+            body["temperature"] = serde_json::json!(0.7);
+            body["top_p"] = serde_json::json!(0.8);
+            body["top_k"] = serde_json::json!(20);
+            body["presence_penalty"] = serde_json::json!(1.5);
+        }
 
         let url = format!("http://127.0.0.1:{}/v1/chat/completions", port);
         match client
