@@ -49,11 +49,3 @@ Bigger models can drive entire PRs from single prompts
 programs as humans are left out of the loop. We're all still
 learning how to take advantage of LLMs but I'm experimenting with
 a much 
-
-## Technical Tasks
-- split render into markdown/layout/syntax submods
-- use in neovim? i.g visual highlight and then prompt for extra
-  context? mini/shadow term like conjure?
-- line by line code highlight? or streamed like spartan neovim?
-  i.e just highlight strings etc.
-- parse tables to be aligned
