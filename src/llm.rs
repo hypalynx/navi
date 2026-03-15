@@ -17,36 +17,42 @@ const CONTEXT_WINDOW_LIMIT: usize = 64_000;
 fn format_tool_call(name: &str, args: &serde_json::Map<String, Value>) -> String {
     match name {
         "Read" => {
-            let path = args.get("filePath")
+            let path = args
+                .get("filePath")
                 .and_then(|v| v.as_str())
                 .unwrap_or("<path>");
             format!("Read {}", path)
         }
         "Glob" => {
-            let pattern = args.get("pattern")
+            let pattern = args
+                .get("pattern")
                 .and_then(|v| v.as_str())
                 .unwrap_or("<pattern>");
             format!("Glob {}", pattern)
         }
         "Grep" => {
-            let pattern = args.get("pattern")
+            let pattern = args
+                .get("pattern")
                 .and_then(|v| v.as_str())
                 .unwrap_or("<pattern>");
             format!("Grep {}", pattern)
         }
         "Bash" => {
-            let command = args.get("command")
+            let command = args
+                .get("command")
                 .and_then(|v| v.as_str())
                 .unwrap_or("<command>");
             format!("Bash {}", command)
         }
         "Webfetch" => {
-            let url = args.get("url")
-                .and_then(|v| v.as_str())
-                .unwrap_or("<url>");
+            let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("<url>");
             format!("Webfetch {}", url)
         }
-        _ => format!("{} {}", name, serde_json::to_string(args).unwrap_or_default()),
+        _ => format!(
+            "{} {}",
+            name,
+            serde_json::to_string(args).unwrap_or_default()
+        ),
     }
 }
 
@@ -54,9 +60,7 @@ pub enum StreamEvent {
     Content(String),
     Thinking(String),
     ToolCalls(Vec<crate::tools::ToolCall>),
-    Usage {
-        total_tokens: usize,
-    },
+    Usage { total_tokens: usize },
     ContextExceeded,
     Error(String),
     Done,
@@ -171,8 +175,12 @@ pub async fn execute(
                                         content.push_str(&text);
                                     }
                                     StreamEvent::Thinking(text) => {
-                                        renderer.push(&text, ContentType::Thinking);
                                         thinking.push_str(&text);
+                                        // Strip XML tool calls from display but keep everything else
+                                        let display_text = strip_xml_tool_calls(&text);
+                                        if !display_text.is_empty() {
+                                            renderer.push(&display_text, ContentType::Thinking);
+                                        }
                                     }
                                     StreamEvent::ToolCalls(calls) => {
                                         tool_calls = calls;
@@ -416,6 +424,7 @@ async fn llm_request(
                 let mut tool_calls_acc: HashMap<usize, (String, String, String)> = HashMap::new();
 
                 let mut full_content = String::new();
+                let mut thinking_content = String::new();
 
                 while let Ok(Some(bytes)) = stream.try_next().await {
                     buffer.push_str(&String::from_utf8_lossy(&bytes));
@@ -423,7 +432,8 @@ async fn llm_request(
                     // Process complete lines, keep incomplete ones in buffer
                     let lines: Vec<&str> = buffer.split('\n').collect();
                     for line in &lines[..lines.len() - 1] {
-                        let _ = parse_line(line, &tx, &mut tool_calls_acc).await;
+                        let _ =
+                            parse_line(line, &tx, &mut tool_calls_acc, &mut thinking_content).await;
                         full_content.push_str(line);
                         full_content.push('\n');
                     }
@@ -433,15 +443,17 @@ async fn llm_request(
 
                 // Handle any remaining buffer
                 if !buffer.is_empty() {
-                    let _ = parse_line(&buffer, &tx, &mut tool_calls_acc).await;
+                    let _ =
+                        parse_line(&buffer, &tx, &mut tool_calls_acc, &mut thinking_content).await;
                     full_content.push_str(&buffer);
                 }
 
                 // Determine format and parse accordingly
-                // Qwen sends either JSON or XML format, not both
-                let tool_calls = if has_xml_tool_calls(&full_content) {
+                // Check both content and thinking for tool calls
+                let search_content = format!("{}\n{}", full_content, thinking_content);
+                let tool_calls = if has_xml_tool_calls(&search_content) {
                     // XML format detected, use XML parser
-                    parse_xml_tool_calls(&full_content)
+                    parse_xml_tool_calls(&search_content)
                 } else if !tool_calls_acc.is_empty() {
                     // JSON format detected from streaming deltas
                     let mut sorted_calls: Vec<_> = tool_calls_acc.into_iter().collect();
@@ -486,6 +498,15 @@ fn has_xml_tool_calls(content: &str) -> bool {
         || (content.contains("<toolcall>") && content.contains("</toolcall>"))
 }
 
+/// Remove XML tool calls from content
+fn strip_xml_tool_calls(content: &str) -> String {
+    let re = match Regex::new(r"<tool_call>[\s\S]+?</tool_call>|<toolcall>[\s\S]+?</toolcall>") {
+        Ok(r) => r,
+        Err(_) => return content.to_string(),
+    };
+    re.replace_all(content, "").to_string()
+}
+
 /// Parse XML-formatted tool calls like:
 /// <tool_call><function=Bash><parameter=command>...</parameter></function></tool_call>
 /// or: <toolcall><function=Bash><parameter=command>...</parameter></function></toolcall>
@@ -494,17 +515,18 @@ pub fn parse_xml_tool_calls(content: &str) -> Vec<ToolCall> {
 
     // Compile regexes once outside loops for efficiency
     // Handle both <tool_call> and <toolcall> formats
-    let tool_call_re = match Regex::new(r"<tool_call>(.+?)</tool_call>|<toolcall>(.+?)</toolcall>") {
-        Ok(re) => re,
-        Err(_) => return tool_calls,
-    };
+    let tool_call_re =
+        match Regex::new(r"<tool_call>([\s\S]+?)</tool_call>|<toolcall>([\s\S]+?)</toolcall>") {
+            Ok(re) => re,
+            Err(_) => return tool_calls,
+        };
 
     let func_re = match Regex::new(r"<function=(\w+)>") {
         Ok(re) => re,
         Err(_) => return tool_calls,
     };
 
-    let param_re = match Regex::new(r"<parameter=(\w+)>(.+?)</parameter>") {
+    let param_re = match Regex::new(r"<parameter=(\w+)>([\s\S]+?)</parameter>") {
         Ok(re) => re,
         Err(_) => return tool_calls,
     };
@@ -528,7 +550,7 @@ pub fn parse_xml_tool_calls(content: &str) -> Vec<ToolCall> {
                         (param_cap.get(1), param_cap.get(2))
                     {
                         let key = key_match.as_str().to_string();
-                        let value = value_match.as_str().to_string();
+                        let value = value_match.as_str().trim().to_string();
                         args.insert(key, Value::String(value));
                     }
                 }
@@ -548,6 +570,7 @@ pub async fn parse_line(
     line: &str,
     tx: &mpsc::Sender<StreamEvent>,
     tool_calls_acc: &mut HashMap<usize, (String, String, String)>,
+    thinking_content: &mut String,
 ) -> anyhow::Result<()> {
     if line == "data: [DONE]" {
         return Ok(());
@@ -580,6 +603,7 @@ pub async fn parse_line(
             tx.send(StreamEvent::Content(content.to_string())).await?;
         }
         if let Some(thinking) = delta.get("reasoning_content").and_then(|t| t.as_str()) {
+            thinking_content.push_str(thinking);
             tx.send(StreamEvent::Thinking(thinking.to_string())).await?;
         }
 

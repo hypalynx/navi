@@ -37,8 +37,9 @@ async fn test_parse_hello_response_streaming() {
 
     // Parse all lines from the fixture
     let mut tool_calls_acc = HashMap::new();
+    let mut thinking_content = String::new();
     for line in fixture.lines() {
-        let _ = parse_line(line, &tx, &mut tool_calls_acc).await;
+        let _ = parse_line(line, &tx, &mut tool_calls_acc, &mut thinking_content).await;
     }
 
     // Send Done to signal completion
@@ -69,6 +70,65 @@ async fn test_parse_hello_response_streaming() {
     assert_eq!(
         response_content,
         "Hello! 👋 How can I assist you today? Feel free to ask me anything!"
+    );
+}
+
+#[tokio::test]
+async fn test_parse_xml_tool_calls_in_reasoning_content() {
+    let fixture = include_str!("fixtures/xml_toolcall_in_thinking.log");
+    let (tx, mut rx) = mpsc::channel(1000);
+
+    // Spawn a task to collect thinking content
+    let collect_task = tokio::spawn(async move {
+        let mut thinking_content = String::new();
+
+        while let Some(event) = rx.recv().await {
+            match event {
+                StreamEvent::Thinking(text) => thinking_content.push_str(&text),
+                StreamEvent::Done => break,
+                _ => {}
+            }
+        }
+
+        thinking_content
+    });
+
+    // Parse all lines from the fixture
+    let mut tool_calls_acc = HashMap::new();
+    let mut thinking_content = String::new();
+    for line in fixture.lines() {
+        let _ = parse_line(line, &tx, &mut tool_calls_acc, &mut thinking_content).await;
+    }
+
+    // Send Done to signal completion
+    let _ = tx.send(StreamEvent::Done).await;
+
+    // Wait for collection task to finish
+    let _collected_thinking = collect_task.await.unwrap();
+
+    // Verify tool calls are in the accumulated thinking content
+    assert!(
+        thinking_content.contains("<tool_call>"),
+        "thinking should contain XML tool calls"
+    );
+
+    // Verify we can parse the tool calls from the thinking content
+    let tool_calls = navi::parse_xml_tool_calls(&thinking_content);
+    assert_eq!(
+        tool_calls.len(),
+        1,
+        "should parse one tool call from reasoning"
+    );
+    assert_eq!(tool_calls[0].name, "Read", "should have Read function");
+    assert_eq!(
+        tool_calls[0].args.get("filePath").and_then(|v| v.as_str()),
+        Some("./src/tools.rs"),
+        "should extract file path without extra whitespace"
+    );
+    assert_eq!(
+        tool_calls[0].args.get("offset").and_then(|v| v.as_str()),
+        Some("560"),
+        "should extract offset parameter"
     );
 }
 
