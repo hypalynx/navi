@@ -19,6 +19,7 @@ enum Mode {
     CodeBlock,
 }
 
+#[derive(Clone)]
 struct Segment {
     text: String,
     bold: bool,
@@ -60,6 +61,18 @@ impl<T: Write> Renderer<T> {
         }
     }
 
+    fn flush_segment(&self, current_segment: &mut Segment) {
+        // Create a fresh segment with current formatting state
+        let new_segment = Segment {
+            text: String::new(),
+            bold: self.bold,
+            italic: self.italic,
+            code_span: self.code_span,
+            strikethrough: self.strikethrough,
+        };
+        *current_segment = new_segment;
+    }
+
     fn render_inline(&mut self, text: &str) -> Vec<Segment> {
         let mut segments = Vec::new();
         let mut current_segment = Segment {
@@ -79,14 +92,8 @@ impl<T: Write> Renderer<T> {
                 if i < chars.len() && chars[i] == '`' {
                     // Flush current segment if it has content
                     if !current_segment.text.is_empty() {
-                        segments.push(current_segment);
-                        current_segment = Segment {
-                            text: String::new(),
-                            bold: self.bold,
-                            italic: self.italic,
-                            code_span: self.code_span,
-                            strikethrough: self.strikethrough,
-                        };
+                        segments.push(current_segment.clone());
+                        self.flush_segment(&mut current_segment);
                     }
                     // Toggle code_span
                     self.code_span = false;
@@ -104,14 +111,8 @@ impl<T: Write> Renderer<T> {
             {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
-                    segments.push(current_segment);
-                    current_segment = Segment {
-                        text: String::new(),
-                        bold: self.bold,
-                        italic: self.italic,
-                        code_span: self.code_span,
-                        strikethrough: self.strikethrough,
-                    };
+                    segments.push(current_segment.clone());
+                    self.flush_segment(&mut current_segment);
                 }
                 // Toggle bold and italic
                 self.bold = !self.bold;
@@ -125,14 +126,8 @@ impl<T: Write> Renderer<T> {
             {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
-                    segments.push(current_segment);
-                    current_segment = Segment {
-                        text: String::new(),
-                        bold: self.bold,
-                        italic: self.italic,
-                        code_span: self.code_span,
-                        strikethrough: self.strikethrough,
-                    };
+                    segments.push(current_segment.clone());
+                    self.flush_segment(&mut current_segment);
                 }
                 // Toggle bold
                 self.bold = !self.bold;
@@ -141,14 +136,8 @@ impl<T: Write> Renderer<T> {
             } else if i < chars.len() && (chars[i] == '*' || chars[i] == '_') {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
-                    segments.push(current_segment);
-                    current_segment = Segment {
-                        text: String::new(),
-                        bold: self.bold,
-                        italic: self.italic,
-                        code_span: self.code_span,
-                        strikethrough: self.strikethrough,
-                    };
+                    segments.push(current_segment.clone());
+                    self.flush_segment(&mut current_segment);
                 }
                 // Toggle italic
                 self.italic = !self.italic;
@@ -157,14 +146,8 @@ impl<T: Write> Renderer<T> {
             } else if i < chars.len() && chars[i] == '`' {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
-                    segments.push(current_segment);
-                    current_segment = Segment {
-                        text: String::new(),
-                        bold: self.bold,
-                        italic: self.italic,
-                        code_span: self.code_span,
-                        strikethrough: self.strikethrough,
-                    };
+                    segments.push(current_segment.clone());
+                    self.flush_segment(&mut current_segment);
                 }
                 // Toggle code_span
                 self.code_span = !self.code_span;
@@ -173,14 +156,8 @@ impl<T: Write> Renderer<T> {
             } else if i + 2 <= chars.len() && chars[i] == '~' && chars[i + 1] == '~' {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
-                    segments.push(current_segment);
-                    current_segment = Segment {
-                        text: String::new(),
-                        bold: self.bold,
-                        italic: self.italic,
-                        code_span: self.code_span,
-                        strikethrough: self.strikethrough,
-                    };
+                    segments.push(current_segment.clone());
+                    self.flush_segment(&mut current_segment);
                 }
                 // Toggle strikethrough
                 self.strikethrough = !self.strikethrough;
