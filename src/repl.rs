@@ -90,7 +90,12 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> any
                 // Show context usage
                 let usage = context_usage.load(Ordering::Relaxed);
                 let percentage = (usage as f64 / 64_000.0 * 100.0) as usize;
-                println!("\n[Context: {} tokens ({}%)]", usage, percentage);
+                if percentage >= 75 {
+                    println!(
+                        "{}",
+                        format!("\n[Context: {} tokens ({}%)]", usage, percentage).yellow()
+                    );
+                }
 
                 if !should_continue {
                     break Ok(());
