@@ -14,6 +14,42 @@ use tokio::sync::mpsc;
 const BRAILLE_SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const CONTEXT_WINDOW_LIMIT: usize = 64_000;
 
+fn format_tool_call(name: &str, args: &serde_json::Map<String, Value>) -> String {
+    match name {
+        "Read" => {
+            let path = args.get("filePath")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<path>");
+            format!("Read {}", path)
+        }
+        "Glob" => {
+            let pattern = args.get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<pattern>");
+            format!("Glob {}", pattern)
+        }
+        "Grep" => {
+            let pattern = args.get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<pattern>");
+            format!("Grep {}", pattern)
+        }
+        "Bash" => {
+            let command = args.get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<command>");
+            format!("Bash {}", command)
+        }
+        "Webfetch" => {
+            let url = args.get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<url>");
+            format!("Webfetch {}", url)
+        }
+        _ => format!("{} {}", name, serde_json::to_string(args).unwrap_or_default()),
+    }
+}
+
 pub enum StreamEvent {
     Content(String),
     Thinking(String),
@@ -228,13 +264,14 @@ pub async fn execute(
                     for tc in &tool_calls {
                         println!(
                             "\n{}\n",
-                            format!("{} {:?}", tc.name, tc.args)
+                            format_tool_call(&tc.name, &tc.args)
                                 .italic()
                                 .bright_black()
                                 .on_black()
                         );
 
-                        let (_summary, result) = crate::tools::execute_tool(tc).await;
+                        let (summary, result) = crate::tools::execute_tool(tc).await;
+                        println!("{}", summary.bright_blue());
                         history.push(Message {
                             role: "tool".to_string(),
                             content: Some(result),
@@ -283,10 +320,10 @@ fn format_messages_for_api(messages: &[Message]) -> Vec<serde_json::Value> {
         .iter()
         .map(|m| {
             if m.role == "tool" {
-                // Tool results: content as string, with tool_call_id
+                // Tool results: content as structured array, with tool_call_id
                 let mut msg = serde_json::json!({
                     "role": "tool",
-                    "content": m.content.as_deref().unwrap_or("")
+                    "content": [{"type": "text", "text": m.content.as_deref().unwrap_or("")}]
                 });
                 if let Some(tool_call_id) = &m.tool_call_id {
                     msg["tool_call_id"] = serde_json::json!(tool_call_id);
