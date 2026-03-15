@@ -3,14 +3,85 @@ use crate::execute;
 use owo_colors::OwoColorize;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
-use rustyline::{Cmd, Completer, Editor, EventHandler, Helper, Hinter, Validator};
+use rustyline::{Cmd, Editor, EventHandler, Helper, Hinter, Validator};
+use rustyline::completion::{Completer, Pair};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-#[derive(Helper, Completer, Hinter, Validator)]
+#[derive(Helper, Hinter, Validator)]
 struct ReplHelper(Arc<AtomicBool>);
+
+impl Completer for ReplHelper {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        _pos: usize,
+        _ctx: &rustyline::Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+        // Extract the last word from the line for completion
+        let last_word_start = line
+            .rfind(|c: char| c.is_whitespace())
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let prefix = &line[last_word_start..];
+
+        let matches = find_matching_files(prefix);
+        Ok((last_word_start, matches))
+    }
+}
+
+fn find_matching_files(prefix: &str) -> Vec<Pair> {
+    let mut matches = Vec::new();
+    find_files_recursive(".", prefix, &mut matches);
+
+    // Sort by display name for consistent order
+    matches.sort_by(|a, b| a.display.cmp(&b.display));
+    matches
+}
+
+fn find_files_recursive(dir: &str, prefix: &str, matches: &mut Vec<Pair>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if let Ok(metadata) = entry.metadata() {
+                if let Some(path) = entry.file_name().to_str() {
+                    let full_path = format!("{}/{}", dir, path).replace("./", "");
+                    let full_path = format!("./{}", full_path);
+
+                    // Check if filename or full path matches prefix
+                    if path.starts_with(prefix) || full_path.contains(prefix) {
+                        matches.push(Pair {
+                            display: full_path.clone(),
+                            replacement: full_path.clone(),
+                        });
+                    }
+
+                    // Recursively search subdirectories, but limit depth and skip common folders
+                    if metadata.is_dir() && should_recurse(&full_path) {
+                        find_files_recursive(&full_path, prefix, matches);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn should_recurse(path: &str) -> bool {
+    // Skip these directories to avoid slow searches
+    let skip = [
+        "target", ".git", "node_modules", ".venv", "venv",
+        ".next", "dist", "build", ".idea",
+    ];
+    for dir in &skip {
+        if path.contains(dir) {
+            return false;
+        }
+    }
+    true
+}
 
 impl Highlighter for ReplHelper {
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
