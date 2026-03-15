@@ -55,8 +55,7 @@ pub enum StreamEvent {
     Thinking(String),
     ToolCalls(Vec<crate::tools::ToolCall>),
     Usage {
-        input_tokens: usize,
-        output_tokens: usize,
+        total_tokens: usize,
     },
     ContextExceeded,
     Error(String),
@@ -178,9 +177,8 @@ pub async fn execute(
                                     StreamEvent::ToolCalls(calls) => {
                                         tool_calls = calls;
                                     }
-                                    StreamEvent::Usage { input_tokens, output_tokens } => {
-                                        let new_usage = context_usage.load(Ordering::Relaxed) + input_tokens + output_tokens;
-                                        context_usage.store(new_usage, Ordering::Relaxed);
+                                    StreamEvent::Usage { total_tokens } => {
+                                        context_usage.store(total_tokens, Ordering::Relaxed);
                                     }
                                     StreamEvent::ContextExceeded => {
                                         spinner_active.store(false, Ordering::Relaxed);
@@ -556,21 +554,13 @@ pub async fn parse_line(
     {
         // Check for usage information (comes at the end of the stream)
         if let Some(usage) = json.get("usage") {
-            let input_tokens = usage
-                .get("prompt_tokens")
-                .and_then(|t| t.as_u64())
-                .unwrap_or(0) as usize;
-            let output_tokens = usage
-                .get("completion_tokens")
+            let total_tokens = usage
+                .get("total_tokens")
                 .and_then(|t| t.as_u64())
                 .unwrap_or(0) as usize;
 
-            if input_tokens > 0 || output_tokens > 0 {
-                tx.send(StreamEvent::Usage {
-                    input_tokens,
-                    output_tokens,
-                })
-                .await?;
+            if total_tokens > 0 {
+                tx.send(StreamEvent::Usage { total_tokens }).await?;
             }
             return Ok(());
         }
