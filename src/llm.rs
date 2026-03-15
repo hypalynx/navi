@@ -482,16 +482,19 @@ async fn llm_request(
 
 /// Detect if content contains XML-formatted tool calls
 fn has_xml_tool_calls(content: &str) -> bool {
-    content.contains("<tool_call>") && content.contains("</tool_call>")
+    (content.contains("<tool_call>") && content.contains("</tool_call>"))
+        || (content.contains("<toolcall>") && content.contains("</toolcall>"))
 }
 
 /// Parse XML-formatted tool calls like:
 /// <tool_call><function=Bash><parameter=command>...</parameter></function></tool_call>
+/// or: <toolcall><function=Bash><parameter=command>...</parameter></function></toolcall>
 pub fn parse_xml_tool_calls(content: &str) -> Vec<ToolCall> {
     let mut tool_calls = Vec::new();
 
     // Compile regexes once outside loops for efficiency
-    let tool_call_re = match Regex::new(r"<tool_call>(.+?)</tool_call>") {
+    // Handle both <tool_call> and <toolcall> formats
+    let tool_call_re = match Regex::new(r"<tool_call>(.+?)</tool_call>|<toolcall>(.+?)</toolcall>") {
         Ok(re) => re,
         Err(_) => return tool_calls,
     };
@@ -506,11 +509,12 @@ pub fn parse_xml_tool_calls(content: &str) -> Vec<ToolCall> {
         Err(_) => return tool_calls,
     };
 
-    // Find all <tool_call>...</tool_call> blocks
+    // Find all <tool_call>...</tool_call> or <toolcall>...</toolcall> blocks
     for cap in tool_call_re.captures_iter(content) {
-        if let Some(block) = cap.get(1) {
-            let block_text = block.as_str();
+        // Get the block content from either capture group (tool_call or toolcall)
+        let block_text = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str());
 
+        if let Some(block_text) = block_text {
             // Extract function name from <function=Name>
             if let Some(func_cap) = func_re.captures(block_text)
                 && let Some(func_name) = func_cap.get(1)
