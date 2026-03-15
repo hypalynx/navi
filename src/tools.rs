@@ -6,6 +6,45 @@ const MAX_OUTPUT_LINES: usize = 500;
 const MAX_OUTPUT_CONTEXT: usize = 50;
 const MAX_LINE_WIDTH: usize = 2000;
 
+// Helper: Truncate a single line to MAX_LINE_WIDTH
+fn truncate_line(line: &str) -> String {
+    if line.len() > MAX_LINE_WIDTH {
+        format!("{}...", &line[..MAX_LINE_WIDTH])
+    } else {
+        line.to_string()
+    }
+}
+
+// Helper: Format output lines, handling truncation when count exceeds MAX_OUTPUT_LINES
+fn format_output_lines(lines: Vec<&str>) -> String {
+    if lines.len() > MAX_OUTPUT_LINES {
+        let head_lines = MAX_OUTPUT_LINES - MAX_OUTPUT_CONTEXT;
+        let head = lines
+            .iter()
+            .take(head_lines)
+            .map(|line| truncate_line(line))
+            .collect::<Vec<_>>();
+        let tail = lines
+            .iter()
+            .skip(lines.len() - MAX_OUTPUT_CONTEXT)
+            .map(|line| truncate_line(line))
+            .collect::<Vec<_>>();
+        let skipped = lines.len() - head_lines - MAX_OUTPUT_CONTEXT;
+        format!(
+            "{}\n\n[... {} lines truncated ...]\n\n{}",
+            head.join("\n"),
+            skipped,
+            tail.join("\n")
+        )
+    } else {
+        lines
+            .iter()
+            .map(|line| truncate_line(line))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolCall {
     pub id: String,
@@ -113,67 +152,15 @@ fn execute_read(args: &serde_json::Map<String, Value>) -> (String, String) {
                 }
             };
 
-            let result = if lines_from_offset_count > MAX_OUTPUT_LINES {
-                let head_lines = MAX_OUTPUT_LINES - MAX_OUTPUT_CONTEXT;
-                let head: Vec<String> = lines_from_offset
-                    .iter()
-                    .take(head_lines)
-                    .map(|s| {
-                        if s.len() > MAX_LINE_WIDTH {
-                            format!("{}...", &s[..MAX_LINE_WIDTH])
-                        } else {
-                            s.to_string()
-                        }
-                    })
-                    .collect();
-                let tail: Vec<String> = lines_from_offset
-                    .iter()
-                    .skip(lines_from_offset_count - MAX_OUTPUT_CONTEXT)
-                    .map(|s| {
-                        if s.len() > MAX_LINE_WIDTH {
-                            format!("{}...", &s[..MAX_LINE_WIDTH])
-                        } else {
-                            s.to_string()
-                        }
-                    })
-                    .collect();
-                let skipped = lines_from_offset_count - head_lines - MAX_OUTPUT_CONTEXT;
-                let offset_note = if offset > 0 {
-                    format!(" (starting from line {})", offset + 1)
-                } else {
-                    String::new()
-                };
-                format!(
-                    "{}\n\n[... {} lines truncated{} ...]\n\n{}",
-                    head.join("\n"),
-                    skipped,
-                    offset_note,
-                    tail.join("\n")
-                )
-            } else {
-                let lines_str = lines_from_offset
-                    .iter()
-                    .map(|s| {
-                        if s.len() > MAX_LINE_WIDTH {
-                            format!("{}...", &s[..MAX_LINE_WIDTH])
-                        } else {
-                            s.to_string()
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                if offset > 0 {
-                    format!(
-                        "{}\n\n[Read from line {} to {} of {} total]",
-                        lines_str,
-                        offset + 1,
-                        offset + lines_from_offset_count,
-                        total_lines
-                    )
-                } else {
-                    lines_str
-                }
-            };
+            let mut result = format_output_lines(lines_from_offset);
+            if offset > 0 {
+                result.push_str(&format!(
+                    "\n\n[Read from line {} to {} of {} total]",
+                    offset + 1,
+                    offset + lines_from_offset_count,
+                    total_lines
+                ));
+            }
 
             (summary, result)
         }
@@ -209,38 +196,7 @@ fn execute_glob(args: &serde_json::Map<String, Value>) -> (String, String) {
             } else {
                 let total_matches = matches.len();
                 let summary = format!("Found {} files matching '{}'", total_matches, pattern);
-
-                let result = if total_matches > MAX_OUTPUT_LINES {
-                    let truncated: Vec<String> = matches
-                        .iter()
-                        .take(MAX_OUTPUT_LINES)
-                        .map(|s| {
-                            if s.len() > MAX_LINE_WIDTH {
-                                format!("{}...", &s[..MAX_LINE_WIDTH])
-                            } else {
-                                s.clone()
-                            }
-                        })
-                        .collect();
-                    let skipped = total_matches - MAX_OUTPUT_LINES;
-                    format!(
-                        "{}\n\n[... {} more files ...]",
-                        truncated.join("\n"),
-                        skipped
-                    )
-                } else {
-                    matches
-                        .iter()
-                        .map(|s| {
-                            if s.len() > MAX_LINE_WIDTH {
-                                format!("{}...", &s[..MAX_LINE_WIDTH])
-                            } else {
-                                s.clone()
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                };
+                let result = format_output_lines(matches.iter().map(|s| s.as_str()).collect());
 
                 (summary, result)
             }
@@ -316,38 +272,7 @@ fn execute_grep(args: &serde_json::Map<String, Value>) -> (String, String) {
     } else {
         let total_matches = matches.len();
         let summary = format!("Found {} matches in {} files", total_matches, file_count);
-
-        let result = if total_matches > MAX_OUTPUT_LINES {
-            let truncated: Vec<String> = matches
-                .iter()
-                .take(MAX_OUTPUT_LINES)
-                .map(|s| {
-                    if s.len() > MAX_LINE_WIDTH {
-                        format!("{}...", &s[..MAX_LINE_WIDTH])
-                    } else {
-                        s.clone()
-                    }
-                })
-                .collect();
-            let skipped = total_matches - MAX_OUTPUT_LINES;
-            format!(
-                "{}\n\n[... {} matches truncated ...]",
-                truncated.join("\n"),
-                skipped
-            )
-        } else {
-            matches
-                .iter()
-                .map(|s| {
-                    if s.len() > MAX_LINE_WIDTH {
-                        format!("{}...", &s[..MAX_LINE_WIDTH])
-                    } else {
-                        s.clone()
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
+        let result = format_output_lines(matches.iter().map(|s| s.as_str()).collect());
 
         (summary, result)
     }
@@ -511,50 +436,7 @@ fn execute_bash(args: &serde_json::Map<String, Value>) -> (String, String) {
                 format!("Command output ({} lines)", total_lines)
             };
 
-            let result_text = if total_lines > MAX_OUTPUT_LINES {
-                let head_lines = MAX_OUTPUT_LINES - MAX_OUTPUT_CONTEXT;
-                let head: Vec<String> = output_lines
-                    .iter()
-                    .take(head_lines)
-                    .map(|s| {
-                        if s.len() > MAX_LINE_WIDTH {
-                            format!("{}...", &s[..MAX_LINE_WIDTH])
-                        } else {
-                            s.to_string()
-                        }
-                    })
-                    .collect();
-                let tail: Vec<String> = output_lines
-                    .iter()
-                    .skip(total_lines - MAX_OUTPUT_CONTEXT)
-                    .map(|s| {
-                        if s.len() > MAX_LINE_WIDTH {
-                            format!("{}...", &s[..MAX_LINE_WIDTH])
-                        } else {
-                            s.to_string()
-                        }
-                    })
-                    .collect();
-                let skipped = total_lines - head_lines - MAX_OUTPUT_CONTEXT;
-                format!(
-                    "{}\n\n[... {} lines truncated ...]\n\n{}",
-                    head.join("\n"),
-                    skipped,
-                    tail.join("\n")
-                )
-            } else {
-                output_lines
-                    .iter()
-                    .map(|s| {
-                        if s.len() > MAX_LINE_WIDTH {
-                            format!("{}...", &s[..MAX_LINE_WIDTH])
-                        } else {
-                            s.to_string()
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            };
+            let result_text = format_output_lines(output_lines);
 
             (summary, result_text)
         }
