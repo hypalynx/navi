@@ -64,24 +64,6 @@
   {
     "type": "function",
     "function": {
-      "name": "Webfetch",
-      "description": "Fetch content from a URL via HTTP GET request. Returns text content with HTML tags stripped.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "string",
-            "description": "URL to fetch (e.g., https://example.com/page)"
-          }
-        },
-        "required": ["url"],
-        "additionalProperties": false
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
       "name": "Bash",
       "description": "Execute a shell command and return output. Dangerous commands are blocked. Output truncated after 500 lines; use filters to narrow output.",
       "parameters": {
@@ -97,6 +79,54 @@
           }
         },
         "required": ["command", "description"],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Write",
+      "description": "Write or create a file with the given content. Creates parent directories if needed. Use for new files or full rewrites; prefer Edit for targeted changes.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to write (absolute or relative)"
+          },
+          "content": {
+            "type": "string",
+            "description": "The complete content to write to the file"
+          }
+        },
+        "required": ["path", "content"],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Edit",
+      "description": "Find and replace text in an existing file. old_string must be unique within the file. Use Read first to confirm the exact text to replace.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to the file to edit"
+          },
+          "old_string": {
+            "type": "string",
+            "description": "Exact text to find and replace (must appear exactly once)"
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Replacement text"
+          }
+        },
+        "required": ["path", "old_string", "new_string"],
         "additionalProperties": false
       }
     }

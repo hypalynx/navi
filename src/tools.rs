@@ -1,4 +1,5 @@
 use serde_json::Value;
+use similar::TextDiff;
 use std::fs;
 use std::path::Path;
 
@@ -57,13 +58,14 @@ pub fn get_tool_definitions() -> Vec<Value> {
     serde_json::from_str(json_str).expect("Failed to parse tool_definitions.json")
 }
 
-pub async fn execute_tool(tool: &ToolCall) -> (String, String) {
+pub fn execute_tool(tool: &ToolCall) -> (String, String) {
     match tool.name.as_str() {
         "Read" => execute_read(&tool.args),
         "Glob" => execute_glob(&tool.args),
         "Grep" => execute_grep(&tool.args),
-        "Webfetch" => execute_webfetch(&tool.args).await,
         "Bash" => execute_bash(&tool.args),
+        "Write" => execute_write(&tool.args),
+        "Edit" => execute_edit(&tool.args),
         _ => {
             let error = format!("Unknown tool: {}", tool.name);
             (error.clone(), error)
@@ -278,72 +280,6 @@ fn execute_grep(args: &serde_json::Map<String, Value>) -> (String, String) {
     }
 }
 
-async fn execute_webfetch(args: &serde_json::Map<String, Value>) -> (String, String) {
-    const MAX_CONTENT: usize = 32768;
-
-    let url = match args.get("url").and_then(|v| v.as_str()) {
-        Some(u) => u,
-        None => {
-            let error = "Error: 'url' parameter is required".to_string();
-            return (error.clone(), error);
-        }
-    };
-
-    let domain = url
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split('/')
-        .next()
-        .unwrap_or(url);
-
-    let client = reqwest::Client::new();
-    match client
-        .get(url)
-        .timeout(std::time::Duration::from_secs(30))
-        .send()
-        .await
-    {
-        Ok(response) => match response.text().await {
-            Ok(content) => {
-                let text = strip_html_tags(&content);
-                let result = if text.len() > MAX_CONTENT {
-                    format!("{}\n[Content truncated at 32KB]", &text[..MAX_CONTENT])
-                } else {
-                    text
-                };
-
-                let summary = format!("Fetching {}", domain);
-                (summary, result)
-            }
-            Err(e) => {
-                let error = format!("Error reading response: {}", e);
-                (error.clone(), error)
-            }
-        },
-        Err(e) => {
-            let error = format!("HTTP request failed: {}", e);
-            (error.clone(), error)
-        }
-    }
-}
-
-fn strip_html_tags(html: &str) -> String {
-    let mut result = String::new();
-    let mut in_tag = false;
-
-    for ch in html.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => result.push(ch),
-            _ => {}
-        }
-    }
-
-    let lines: Vec<&str> = result.lines().filter(|l| !l.trim().is_empty()).collect();
-    lines.join("\n")
-}
-
 fn validate_bash_command(command: &str) -> Result<(), String> {
     let cmd_lower = command.to_lowercase();
 
@@ -444,5 +380,150 @@ fn execute_bash(args: &serde_json::Map<String, Value>) -> (String, String) {
             let error = format!("Error executing command: {}", e);
             (error.clone(), error)
         }
+    }
+}
+
+fn execute_write(args: &serde_json::Map<String, Value>) -> (String, String) {
+    let path = match args.get("path").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            let error = "Error: 'path' parameter is required".to_string();
+            return (error.clone(), error);
+        }
+    };
+
+    let content = match args.get("content").and_then(|v| v.as_str()) {
+        Some(c) => c,
+        None => {
+            let error = "Error: 'content' parameter is required".to_string();
+            return (error.clone(), error);
+        }
+    };
+
+    let file_path = Path::new(path);
+    if let Some(parent) = file_path.parent()
+        && !parent.as_os_str().is_empty()
+        && let Err(e) = fs::create_dir_all(parent)
+    {
+        let error = format!("Error creating directories: {}", e);
+        return (error.clone(), error);
+    }
+
+    let old_content = fs::read_to_string(path).unwrap_or_default();
+
+    match fs::write(path, content) {
+        Ok(_) => {
+            let filename = file_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(path);
+            let summary = format!("Writing {}", filename);
+            let diff = generate_diff(&old_content, content, filename);
+            let result = format!("Written {} bytes to {}\n\n{}", content.len(), path, diff);
+            (summary, result)
+        }
+        Err(e) => {
+            let error = format!("Error writing file: {}", e);
+            (error.clone(), error)
+        }
+    }
+}
+
+fn execute_edit(args: &serde_json::Map<String, Value>) -> (String, String) {
+    let path = match args.get("path").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => {
+            let error = "Error: 'path' parameter is required".to_string();
+            return (error.clone(), error);
+        }
+    };
+
+    let old_string = match args.get("old_string").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => {
+            let error = "Error: 'old_string' parameter is required".to_string();
+            return (error.clone(), error);
+        }
+    };
+
+    let new_string = match args.get("new_string").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => {
+            let error = "Error: 'new_string' parameter is required".to_string();
+            return (error.clone(), error);
+        }
+    };
+
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            let error = format!("Error reading file: {}", e);
+            return (error.clone(), error);
+        }
+    };
+
+    if !content.contains(old_string) {
+        let error = "Error: old_string not found in file".to_string();
+        return (error.clone(), error);
+    }
+
+    let count = content.matches(old_string).count();
+    if count > 1 {
+        let error = format!("Error: old_string appears {} times (must be unique)", count);
+        return (error.clone(), error);
+    }
+
+    let new_content = content.replacen(old_string, new_string, 1);
+
+    match fs::write(path, &new_content) {
+        Ok(_) => {
+            let filename = Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(path);
+            let summary = format!("Editing {}", filename);
+            let diff = generate_diff(&content, &new_content, filename);
+            let result = format!("Successfully edited {}\n\n{}", path, diff);
+            (summary, result)
+        }
+        Err(e) => {
+            let error = format!("Error writing file: {}", e);
+            (error.clone(), error)
+        }
+    }
+}
+
+fn generate_diff(old: &str, new: &str, filename: &str) -> String {
+    if old.is_empty() && !new.is_empty() {
+        let mut result = format!(
+            "--- /dev/null\n+++ {}\n@@ -0,0 +1,{} @@\n",
+            filename,
+            new.lines().count()
+        );
+        for line in new.lines() {
+            result.push_str(&format!("+{}\n", line));
+        }
+        return result;
+    }
+
+    let diff = TextDiff::from_lines(old, new);
+    let unified = diff
+        .unified_diff()
+        .context_radius(5)
+        .header(&format!("--- {}", filename), &format!("+++ {}", filename))
+        .to_string();
+
+    if unified.trim().is_empty() {
+        return "(no changes)".to_string();
+    }
+
+    let lines: Vec<&str> = unified.lines().collect();
+    if lines.len() > 3000 {
+        format!(
+            "{}\n\n... (diff truncated, too many changes)",
+            lines[..3000].join("\n")
+        )
+    } else {
+        unified
     }
 }

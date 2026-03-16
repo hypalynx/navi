@@ -44,9 +44,19 @@ fn format_tool_call(name: &str, args: &serde_json::Map<String, Value>) -> String
                 .unwrap_or("<command>");
             format!("Bash {}", command)
         }
-        "Webfetch" => {
-            let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("<url>");
-            format!("Webfetch {}", url)
+        "Write" => {
+            let path = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<path>");
+            format!("Write {}", path)
+        }
+        "Edit" => {
+            let path = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<path>");
+            format!("Edit {}", path)
         }
         _ => format!(
             "{} {}",
@@ -276,8 +286,11 @@ pub async fn execute(
                                 .on_black()
                         );
 
-                        let (summary, result) = crate::tools::execute_tool(tc).await;
+                        let (summary, result) = crate::tools::execute_tool(tc);
                         println!("{}", summary.bright_blue());
+                        if matches!(tc.name.as_str(), "Write" | "Edit") {
+                            println!("{}", result);
+                        }
                         history.push(Message {
                             role: "tool".to_string(),
                             content: Some(result),
