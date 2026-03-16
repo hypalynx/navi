@@ -205,15 +205,34 @@ impl<T: Write> Renderer<T> {
             if !part.is_empty() {
                 let mut processed_part = part.to_string();
 
+                // Skip language tags that come as separate tokens (e.g., ``` then python)
+                if self.mode == Mode::CodeBlock && !self.at_line_start && !part.trim().is_empty() {
+                    let trimmed = part.trim();
+                    if trimmed
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+                    {
+                        continue;
+                    }
+                }
+
                 if self.at_line_start {
                     // Check for code block fence
                     if part.trim_start().starts_with("```") {
-                        self.mode = match &self.mode {
-                            Mode::CodeBlock => Mode::Normal,
-                            Mode::Normal => Mode::CodeBlock,
-                        };
-                        self.at_line_start = false;
-                        continue;
+                        // Skip language identifier if present (e.g., `rust`, `js`)
+                        let after_fence = part.trim_start()[3..].trim();
+                        if after_fence.is_empty()
+                            || after_fence
+                                .chars()
+                                .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+                        {
+                            self.mode = match &self.mode {
+                                Mode::CodeBlock => Mode::Normal,
+                                Mode::Normal => Mode::CodeBlock,
+                            };
+                            self.at_line_start = false;
+                            continue;
+                        }
                     }
 
                     // Check for heading (with marker_buf support for split delimiters)
@@ -356,7 +375,7 @@ impl<T: Write> Renderer<T> {
 
     fn print_segment(&mut self, segment: &Segment, content_type: ContentType) {
         let start_code = if self.mode == Mode::CodeBlock {
-            "\x1b[2m".to_string() // dim
+            "\x1b[33m".to_string() // yellow
         } else if self.heading_level == 1 {
             "\x1b[1;33m".to_string() // bold yellow
         } else if self.heading_level == 2 {
