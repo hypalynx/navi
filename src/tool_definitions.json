@@ -82,53 +82,5 @@
         "additionalProperties": false
       }
     }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "Write",
-      "description": "Write or create a file with the given content. Creates parent directories if needed. Use for new files or full rewrites; prefer Edit for targeted changes.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Path to the file to write (absolute or relative)"
-          },
-          "content": {
-            "type": "string",
-            "description": "The complete content to write to the file"
-          }
-        },
-        "required": ["path", "content"],
-        "additionalProperties": false
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "Edit",
-      "description": "Find and replace text in an existing file. old_string must be unique within the file. Use Read first to confirm the exact text to replace.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Path to the file to edit"
-          },
-          "old_string": {
-            "type": "string",
-            "description": "Exact text to find and replace (must appear exactly once)"
-          },
-          "new_string": {
-            "type": "string",
-            "description": "Replacement text"
-          }
-        },
-        "required": ["path", "old_string", "new_string"],
-        "additionalProperties": false
-      }
-    }
   }
 ]

@@ -1,5 +1,4 @@
 use serde_json::Value;
-use similar::TextDiff;
 use std::fs;
 use std::path::Path;
 
@@ -64,8 +63,6 @@ pub fn execute_tool(tool: &ToolCall) -> (String, String) {
         "Glob" => execute_glob(&tool.args),
         "Grep" => execute_grep(&tool.args),
         "Bash" => execute_bash(&tool.args),
-        "Write" => execute_write(&tool.args),
-        "Edit" => execute_edit(&tool.args),
         _ => {
             let error = format!("Unknown tool: {}", tool.name);
             (error.clone(), error)
@@ -380,150 +377,5 @@ fn execute_bash(args: &serde_json::Map<String, Value>) -> (String, String) {
             let error = format!("Error executing command: {}", e);
             (error.clone(), error)
         }
-    }
-}
-
-fn execute_write(args: &serde_json::Map<String, Value>) -> (String, String) {
-    let path = match args.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => {
-            let error = "Error: 'path' parameter is required".to_string();
-            return (error.clone(), error);
-        }
-    };
-
-    let content = match args.get("content").and_then(|v| v.as_str()) {
-        Some(c) => c,
-        None => {
-            let error = "Error: 'content' parameter is required".to_string();
-            return (error.clone(), error);
-        }
-    };
-
-    let file_path = Path::new(path);
-    if let Some(parent) = file_path.parent()
-        && !parent.as_os_str().is_empty()
-        && let Err(e) = fs::create_dir_all(parent)
-    {
-        let error = format!("Error creating directories: {}", e);
-        return (error.clone(), error);
-    }
-
-    let old_content = fs::read_to_string(path).unwrap_or_default();
-
-    match fs::write(path, content) {
-        Ok(_) => {
-            let filename = file_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(path);
-            let summary = format!("Writing {}", filename);
-            let diff = generate_diff(&old_content, content, filename);
-            let result = format!("Written {} bytes to {}\n\n{}", content.len(), path, diff);
-            (summary, result)
-        }
-        Err(e) => {
-            let error = format!("Error writing file: {}", e);
-            (error.clone(), error)
-        }
-    }
-}
-
-fn execute_edit(args: &serde_json::Map<String, Value>) -> (String, String) {
-    let path = match args.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => {
-            let error = "Error: 'path' parameter is required".to_string();
-            return (error.clone(), error);
-        }
-    };
-
-    let old_string = match args.get("old_string").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => {
-            let error = "Error: 'old_string' parameter is required".to_string();
-            return (error.clone(), error);
-        }
-    };
-
-    let new_string = match args.get("new_string").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => {
-            let error = "Error: 'new_string' parameter is required".to_string();
-            return (error.clone(), error);
-        }
-    };
-
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(e) => {
-            let error = format!("Error reading file: {}", e);
-            return (error.clone(), error);
-        }
-    };
-
-    if !content.contains(old_string) {
-        let error = "Error: old_string not found in file".to_string();
-        return (error.clone(), error);
-    }
-
-    let count = content.matches(old_string).count();
-    if count > 1 {
-        let error = format!("Error: old_string appears {} times (must be unique)", count);
-        return (error.clone(), error);
-    }
-
-    let new_content = content.replacen(old_string, new_string, 1);
-
-    match fs::write(path, &new_content) {
-        Ok(_) => {
-            let filename = Path::new(path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(path);
-            let summary = format!("Editing {}", filename);
-            let diff = generate_diff(&content, &new_content, filename);
-            let result = format!("Successfully edited {}\n\n{}", path, diff);
-            (summary, result)
-        }
-        Err(e) => {
-            let error = format!("Error writing file: {}", e);
-            (error.clone(), error)
-        }
-    }
-}
-
-fn generate_diff(old: &str, new: &str, filename: &str) -> String {
-    if old.is_empty() && !new.is_empty() {
-        let mut result = format!(
-            "--- /dev/null\n+++ {}\n@@ -0,0 +1,{} @@\n",
-            filename,
-            new.lines().count()
-        );
-        for line in new.lines() {
-            result.push_str(&format!("+{}\n", line));
-        }
-        return result;
-    }
-
-    let diff = TextDiff::from_lines(old, new);
-    let unified = diff
-        .unified_diff()
-        .context_radius(5)
-        .header(&format!("--- {}", filename), &format!("+++ {}", filename))
-        .to_string();
-
-    if unified.trim().is_empty() {
-        return "(no changes)".to_string();
-    }
-
-    let lines: Vec<&str> = unified.lines().collect();
-    if lines.len() > 3000 {
-        format!(
-            "{}\n\n... (diff truncated, too many changes)",
-            lines[..3000].join("\n")
-        )
-    } else {
-        unified
     }
 }

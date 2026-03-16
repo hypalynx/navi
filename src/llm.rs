@@ -44,20 +44,6 @@ fn format_tool_call(name: &str, args: &serde_json::Map<String, Value>) -> String
                 .unwrap_or("<command>");
             format!("Bash {}", command)
         }
-        "Write" => {
-            let path = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("<path>");
-            format!("Write {}", path)
-        }
-        "Edit" => {
-            let path = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or("<path>");
-            format!("Edit {}", path)
-        }
         _ => format!(
             "{} {}",
             name,
@@ -288,9 +274,6 @@ pub async fn execute(
 
                         let (summary, result) = crate::tools::execute_tool(tc);
                         println!("{}", summary.bright_blue());
-                        if matches!(tc.name.as_str(), "Write" | "Edit") {
-                            println!("{}", result);
-                        }
                         history.push(Message {
                             role: "tool".to_string(),
                             content: Some(result),

@@ -49,8 +49,11 @@ fn find_files_recursive(dir: &str, prefix: &str, matches: &mut Vec<Pair>) {
             if let Ok(metadata) = entry.metadata()
                 && let Some(path) = entry.file_name().to_str()
             {
-                let full_path = format!("{}/{}", dir, path).replace("./", "");
-                let full_path = format!("./{}", full_path);
+                let full_path = if dir == "." {
+                    format!("./{}", path)
+                } else {
+                    format!("{}/{}", dir, path)
+                };
 
                 // Check if filename or full path matches prefix
                 if path.starts_with(prefix) || full_path.contains(prefix) {
@@ -71,7 +74,7 @@ fn find_files_recursive(dir: &str, prefix: &str, matches: &mut Vec<Pair>) {
 
 fn should_recurse(path: &str) -> bool {
     // Skip these directories to avoid slow searches
-    let skip = [
+    ![
         "target",
         ".git",
         "node_modules",
@@ -81,13 +84,9 @@ fn should_recurse(path: &str) -> bool {
         "dist",
         "build",
         ".idea",
-    ];
-    for dir in &skip {
-        if path.contains(dir) {
-            return false;
-        }
-    }
-    true
+    ]
+    .iter()
+    .any(|dir| path.contains(dir))
 }
 
 impl Highlighter for ReplHelper {
