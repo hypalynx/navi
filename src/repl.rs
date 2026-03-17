@@ -75,6 +75,9 @@ fn find_files_recursive(dir: &str, prefix: &str, matches: &mut Vec<Pair>) {
 fn should_recurse(path: &str) -> bool {
     // Skip these directories to avoid slow searches
     ![
+        "__pycache__",
+        ".pytest_cache",
+        ".cargo",
         "target",
         ".git",
         "node_modules",

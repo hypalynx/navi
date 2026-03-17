@@ -416,3 +416,56 @@ fn test_various_punctuation_stay_on_line() {
         assert_eq!(clean.trim(), expected, "for punctuation {}", punct);
     }
 }
+
+#[test]
+fn test_underscore_in_identifiers() {
+    // Test that underscores in identifiers are preserved and don't break rendering.
+    // The key use case: preserve identifiers like node_modules when they appear
+    // in normal text (the main bug we fixed).
+    let test_cases = vec![
+        ("node_modules", "node_modules"), // Preserve underscores in identifiers
+        ("var_name_here", "var_name_here"), // Multiple underscores in identifier
+        ("prefix_node_modules", "prefix_node_modules"), // Underscores in middle
+    ];
+
+    for (input, expected) in test_cases {
+        let mut output = Vec::new();
+        let mut renderer = Renderer::new(80, &mut output);
+
+        renderer.push(input, ContentType::Normal);
+        renderer.flush();
+
+        let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
+        let clean = strip_ansi(&output_str).trim().to_string();
+
+        assert_eq!(
+            clean, expected,
+            "input '{}' should render as '{}', got '{}'",
+            input, expected, clean
+        );
+    }
+}
+
+#[test]
+fn test_underscore_streaming() {
+    // Test underscore handling when tokens are split across stream boundaries
+    // This simulates how the LLM might stream "node_modules" as separate tokens
+    let tokens = vec!["node", "_", "modules"];
+    let mut output = Vec::new();
+
+    let mut renderer = Renderer::new(80, &mut output);
+
+    for token in tokens {
+        renderer.push(token, ContentType::Normal);
+    }
+    renderer.flush();
+
+    let output_str = String::from_utf8(output).expect("output should be valid UTF-8");
+    let clean = strip_ansi(&output_str).trim().to_string();
+
+    // The underscore should be preserved even when streamed separately
+    assert_eq!(
+        clean, "node_modules",
+        "underscore should be preserved when streamed as separate token"
+    );
+}

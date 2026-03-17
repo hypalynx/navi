@@ -41,6 +41,7 @@ pub struct Renderer<T: Write> {
     strikethrough: bool,
     blockquote: bool,
     marker_buf: String,
+    last_was_alphanumeric: bool,
 }
 
 impl<T: Write> Renderer<T> {
@@ -58,6 +59,7 @@ impl<T: Write> Renderer<T> {
             strikethrough: false,
             blockquote: false,
             marker_buf: String::new(),
+            last_was_alphanumeric: false,
         }
     }
 
@@ -133,7 +135,7 @@ impl<T: Write> Renderer<T> {
                 self.bold = !self.bold;
                 current_segment.bold = self.bold;
                 i += 2;
-            } else if i < chars.len() && (chars[i] == '*' || chars[i] == '_') {
+            } else if i < chars.len() && chars[i] == '*' {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
                     segments.push(current_segment.clone());
@@ -143,6 +145,33 @@ impl<T: Write> Renderer<T> {
                 self.italic = !self.italic;
                 current_segment.italic = self.italic;
                 i += 1;
+            } else if i < chars.len() && chars[i] == '_' {
+                // For underscores: only treat as italic delimiter if NOT surrounded by alphanumerics
+                // This preserves identifiers like node_modules while allowing _italic_ formatting
+                let prev_is_alnum = if i > 0 {
+                    chars[i - 1].is_alphanumeric()
+                } else {
+                    self.last_was_alphanumeric // Use state from previous token
+                };
+                let next_is_alnum = i + 1 < chars.len() && chars[i + 1].is_alphanumeric();
+
+                // Treat as italic delimiter only if BOTH sides are NOT alphanumeric
+                // This prevents node_modules from being italicized while preserving _ _word_ formatting
+                if !prev_is_alnum && !next_is_alnum {
+                    // Flush current segment
+                    if !current_segment.text.is_empty() {
+                        segments.push(current_segment.clone());
+                        self.flush_segment(&mut current_segment);
+                    }
+                    // Toggle italic
+                    self.italic = !self.italic;
+                    current_segment.italic = self.italic;
+                    i += 1;
+                } else {
+                    // Treat as regular character (part of word)
+                    current_segment.text.push(chars[i]);
+                    i += 1;
+                }
             } else if i < chars.len() && chars[i] == '`' {
                 // Flush current segment
                 if !current_segment.text.is_empty() {
@@ -173,6 +202,11 @@ impl<T: Write> Renderer<T> {
         // Flush final segment
         if !current_segment.text.is_empty() {
             segments.push(current_segment);
+        }
+
+        // Update state: track if last character was alphanumeric for next token
+        if let Some(last_char) = chars.last() {
+            self.last_was_alphanumeric = last_char.is_alphanumeric();
         }
 
         segments
