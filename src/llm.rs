@@ -81,6 +81,7 @@ pub async fn execute(
     port: u16,
     thinking_enabled: bool,
     context_usage: Arc<AtomicUsize>,
+    wrap_width: usize,
 ) -> anyhow::Result<bool> {
     history.push(Message {
         role: "user".to_string(),
@@ -116,7 +117,7 @@ pub async fn execute(
                 let mut content = String::new();
                 let mut thinking = String::new();
                 let mut tool_calls = Vec::new();
-                let mut renderer = Renderer::new(80, std::io::stdout());
+                let mut renderer = Renderer::new(wrap_width, std::io::stdout());
 
                 // Spinner state
                 let spinner_active = Arc::new(AtomicBool::new(true));

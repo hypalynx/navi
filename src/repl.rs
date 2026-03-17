@@ -103,7 +103,12 @@ impl Highlighter for ReplHelper {
     }
 }
 
-pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> anyhow::Result<()> {
+pub async fn prompt(
+    version: &str,
+    history: &mut Vec<Message>,
+    port: u16,
+    wrap_width: usize,
+) -> anyhow::Result<()> {
     println!(
         "navi ({}), Ctrl+T to toggle thinking, Ctrl+C to exit.",
         version
@@ -161,6 +166,7 @@ pub async fn prompt(version: &str, history: &mut Vec<Message>, port: u16) -> any
                     port,
                     thinking_enabled.load(Ordering::Relaxed),
                     context_usage.clone(),
+                    wrap_width,
                 )
                 .await?;
 

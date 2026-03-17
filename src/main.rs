@@ -14,6 +14,9 @@ struct Cli {
 
     #[arg(short, long, default_value = "7777")]
     port: u16,
+
+    #[arg(short, long, default_value = "80")]
+    wrap: usize,
 }
 
 const NAVI_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -31,11 +34,11 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(cmd) = cli.exec {
         let context_usage = Arc::new(AtomicUsize::new(0));
-        execute(&cmd, &mut history, cli.port, false, context_usage).await?;
+        execute(&cmd, &mut history, cli.port, false, context_usage, cli.wrap).await?;
         return Ok(());
     }
 
-    repl::prompt(NAVI_VERSION, &mut history, cli.port).await?;
+    repl::prompt(NAVI_VERSION, &mut history, cli.port, cli.wrap).await?;
 
     Ok(())
 }
